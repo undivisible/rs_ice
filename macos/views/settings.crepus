@@ -1,0 +1,44 @@
+div flex flex-col gap-5 p-6
+  span text-3xl font-bold
+    "Ice Settings"
+  span text-sm text-zinc-500
+    "Menu-bar settings surface rendered with Aurorality."
+  div flex flex-col gap-3 p-4 rounded-xl bg-zinc-100
+    span text-lg font-semibold
+      "General"
+    div flex flex-row justify-between
+      span text-base
+        "Show Ice Icon"
+      span text-base font-semibold
+        "{showIceIcon}"
+    div flex flex-row justify-between
+      span text-base
+        "Show On Click"
+      span text-base font-semibold
+        "{showOnClick}"
+  div flex flex-col gap-3 p-4 rounded-xl bg-zinc-100
+    span text-lg font-semibold
+      "Rehide"
+    div flex flex-row justify-between
+      span text-base
+        "Auto Rehide"
+      span text-base font-semibold
+        "{autoRehide}"
+    div flex flex-row justify-between
+      span text-base
+        "Strategy"
+      span text-base font-semibold
+        "{rehideStrategy}"
+    div flex flex-row justify-between
+      span text-base
+        "Interval"
+      span text-base font-semibold
+        "{rehideInterval}"
+  div flex flex-col gap-3 p-4 rounded-xl bg-zinc-100
+    span text-lg font-semibold
+      "Advanced"
+    div flex flex-row justify-between
+      span text-base
+        "Context Menu On Right Click"
+      span text-base font-semibold
+        "{contextMenuOnRightClick}"
