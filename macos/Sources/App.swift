@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Aurorality
 
@@ -13,19 +14,71 @@ private func resourceURL(_ name: String, _ ext: String) -> URL? {
 
 @main
 struct RsIceSettingsHostApp: App {
-    @State private var state = AurorState()
-    @State private var bridge = {
+    @NSApplicationDelegateAdaptor(RsIceMenuBarAppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        Settings {
+            EmptyView()
+        }
+    }
+}
+
+@MainActor
+final class RsIceMenuBarAppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem?
+    private let popover = NSPopover()
+    private let state = AurorState()
+    private let bridge = {
         let bridge = AurorBridge()
         bridge.register(RsIceSettingsPlugin())
         return bridge
     }()
 
-    var body: some Scene {
-        WindowGroup("Ice Settings") {
-            AurorRootView(state: state)
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+        configureStatusItem()
+        configurePopover()
+        load()
+    }
+
+    private func configureStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "rs_ice.settingsHost"
+
+        if let button = item.button {
+            button.image = NSImage(
+                systemSymbolName: "snowflake",
+                accessibilityDescription: "Ice"
+            )
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+        }
+
+        statusItem = item
+    }
+
+    private func configurePopover() {
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 420, height: 560)
+        popover.contentViewController = NSHostingController(
+            rootView: AurorRootView(state: state)
                 .environment(bridge)
-                .frame(minWidth: 420, minHeight: 520)
-                .task { load() }
+                .frame(width: 420, height: 560)
+        )
+    }
+
+    @objc private func togglePopover(_ sender: AnyObject?) {
+        guard let button = statusItem?.button else {
+            return
+        }
+
+        load()
+
+        if popover.isShown {
+            popover.performClose(sender)
+        } else {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
         }
     }
 

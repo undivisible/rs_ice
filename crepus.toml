@@ -1,0 +1,17 @@
+[package]
+name = "RsIceSettingsHost"
+version = "0.1.0"
+
+[app]
+bundle_id = "dev.undivisible.rs-ice.settings"
+deployment_target = "14.0"
+sources = "macos/Sources"
+resources = ["macos/views"]
+embedded_dylibs = ["target/debug/libaurorality_core.dylib"]
+
+[pre_build]
+commands = [
+    "cargo build -p aurorality-core --features js --manifest-path ../aurorality/Cargo.toml --target-dir target",
+    "cargo run --manifest-path ../aurorality/Cargo.toml -p aurorality-core --features js --target-dir target --bin uniffi-bindgen generate --library target/debug/libaurorality_core.dylib --language swift --out-dir ../aurorality/generated",
+    "cp ../aurorality/generated/aurorality_coreFFI.modulemap ../aurorality/generated/module.modulemap",
+]

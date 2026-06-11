@@ -1,44 +1,43 @@
-div flex flex-col gap-5 p-6
-  span text-3xl font-bold
-    "Ice Settings"
-  span text-sm text-zinc-500
-    "Menu-bar settings surface rendered with Aurorality."
-  div flex flex-col gap-3 p-4 rounded-xl bg-zinc-100
-    span text-lg font-semibold
-      "General"
+div flex flex-col gap-4 p-6 bg-zinc-950
+  div flex flex-row justify-between
+    div flex flex-col gap-1
+      span text-3xl font-bold text-zinc-50
+        "Ice"
+      span text-xs font-semibold text-cyan-400 uppercase
+        "menu bar control"
+    span text-sm font-semibold text-zinc-400
+      "{rehideStrategy}"
+  div flex flex-col gap-2 p-4 rounded-xl bg-zinc-900
+    span text-xs font-semibold text-zinc-500 uppercase
+      "Visibility"
     div flex flex-row justify-between
-      span text-base
-        "Show Ice Icon"
-      span text-base font-semibold
+      span text-base text-zinc-100
+        "Status Icon"
+      span text-base font-semibold text-cyan-300
         "{showIceIcon}"
     div flex flex-row justify-between
-      span text-base
-        "Show On Click"
-      span text-base font-semibold
+      span text-base text-zinc-100
+        "Click Empty Menu Bar"
+      span text-base font-semibold text-cyan-300
         "{showOnClick}"
-  div flex flex-col gap-3 p-4 rounded-xl bg-zinc-100
-    span text-lg font-semibold
+  div flex flex-col gap-2 p-4 rounded-xl bg-zinc-900
+    span text-xs font-semibold text-zinc-500 uppercase
       "Rehide"
     div flex flex-row justify-between
-      span text-base
+      span text-base text-zinc-100
         "Auto Rehide"
-      span text-base font-semibold
+      span text-base font-semibold text-cyan-300
         "{autoRehide}"
     div flex flex-row justify-between
-      span text-base
-        "Strategy"
-      span text-base font-semibold
-        "{rehideStrategy}"
-    div flex flex-row justify-between
-      span text-base
+      span text-base text-zinc-100
         "Interval"
-      span text-base font-semibold
+      span text-base font-semibold text-zinc-200
         "{rehideInterval}"
-  div flex flex-col gap-3 p-4 rounded-xl bg-zinc-100
-    span text-lg font-semibold
+  div flex flex-col gap-2 p-4 rounded-xl bg-zinc-900
+    span text-xs font-semibold text-zinc-500 uppercase
       "Advanced"
     div flex flex-row justify-between
-      span text-base
-        "Context Menu On Right Click"
-      span text-base font-semibold
+      span text-base text-zinc-100
+        "Right Click Menu"
+      span text-base font-semibold text-cyan-300
         "{contextMenuOnRightClick}"

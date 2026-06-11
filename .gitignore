@@ -1,3 +1,4 @@
 /target
 /.build
 /macos/.build
+/generated
