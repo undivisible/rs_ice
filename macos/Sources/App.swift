@@ -19,6 +19,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private var defaultsObserver: NSObjectProtocol?
+    private var eventMonitor: Any?
     private var hoverTimer: Timer?
     private var hoverStartedAt: Date?
     private var hiddenSectionShown = false
@@ -26,8 +27,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         requestAccessibilityPermissionIfNeeded()
+        requestScreenRecordingPermissionIfNeeded()
         configurePopover()
         configureStatusItem()
+        configureEventMonitor()
         configureHoverTimer()
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -44,6 +47,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
         hoverTimer?.invalidate()
     }
 
@@ -54,7 +60,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = item.button {
             button.target = self
             button.action = #selector(statusItemPressed(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.sendAction(on: [.leftMouseDown])
         }
 
         statusItem = item
@@ -89,6 +95,33 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleHoverTimer()
             }
         }
+    }
+
+    private func configureEventMonitor() {
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else {
+                return event
+            }
+
+            guard self.eventIsInsideStatusItem(event) else {
+                return event
+            }
+
+            if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
+                self.togglePopover(nil)
+            } else {
+                self.toggleHiddenSection()
+            }
+            return nil
+        }
+    }
+
+    private func eventIsInsideStatusItem(_ event: NSEvent) -> Bool {
+        guard let button = statusItem?.button, let window = button.window, event.window === window else {
+            return false
+        }
+
+        return button.bounds.contains(button.convert(event.locationInWindow, from: nil))
     }
 
     private func handleHoverTimer() {
@@ -161,6 +194,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setHiddenSectionShown(_ shown: Bool) {
         hiddenSectionShown = shown
+        moveDiscoveredMenuBarItems(hidden: shown)
         updateStatusButton()
     }
 
@@ -172,6 +206,107 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
+
+    private func requestScreenRecordingPermissionIfNeeded() {
+        guard !CGPreflightScreenCaptureAccess() else {
+            return
+        }
+
+        CGRequestScreenCaptureAccess()
+    }
+
+    private func moveDiscoveredMenuBarItems(hidden: Bool) {
+        guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else {
+            requestAccessibilityPermissionIfNeeded()
+            requestScreenRecordingPermissionIfNeeded()
+            return
+        }
+
+        guard let iceFrame = statusItem?.button?.window?.frame else {
+            return
+        }
+
+        let candidates = discoveredMenuBarItemWindows(iceFrame: iceFrame)
+        guard !candidates.isEmpty else {
+            NSLog("rs_ice: no movable menu bar item windows discovered")
+            return
+        }
+
+        for candidate in candidates {
+            moveWindow(candidate, around: iceFrame, hidden: hidden)
+        }
+    }
+
+    private func discoveredMenuBarItemWindows(iceFrame: CGRect) -> [MenuBarWindow] {
+        guard let rawWindows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let screenFrame = NSScreen.main?.frame ?? .zero
+        let iceMidX = iceFrame.midX
+
+        return rawWindows.compactMap { info in
+            guard
+                let number = info[kCGWindowNumber as String] as? CGWindowID,
+                let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                ownerPID != ownPID,
+                let boundsInfo = info[kCGWindowBounds as String] as? [String: CGFloat],
+                let x = boundsInfo["X"],
+                let y = boundsInfo["Y"],
+                let width = boundsInfo["Width"],
+                let height = boundsInfo["Height"]
+            else {
+                return nil
+            }
+
+            guard width > 1, width < 220, height > 1, height <= 80, y <= 80 else {
+                return nil
+            }
+
+            let frame = CGRect(x: x, y: screenFrame.height - y - height, width: width, height: height)
+            guard abs(frame.midX - iceMidX) > 2 else {
+                return nil
+            }
+
+            return MenuBarWindow(windowID: number, ownerPID: ownerPID, frame: frame)
+        }
+        .sorted { $0.frame.minX < $1.frame.minX }
+    }
+
+    private func moveWindow(_ window: MenuBarWindow, around iceFrame: CGRect, hidden: Bool) {
+        guard let source = CGEventSource(stateID: .hidSystemState) else {
+            return
+        }
+
+        let start = CGPoint(x: window.frame.midX, y: window.frame.midY)
+        let targetX = hidden ? iceFrame.minX - 8 : iceFrame.maxX + 8
+        let end = CGPoint(x: targetX, y: iceFrame.midY)
+
+        guard
+            let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left),
+            let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)
+        else {
+            return
+        }
+
+        down.flags = .maskCommand
+        down.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowID))
+        down.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowID))
+        down.setIntegerValueField(CGEventField(rawValue: 0x33)!, value: Int64(window.windowID))
+        up.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowID))
+        up.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowID))
+        up.setIntegerValueField(CGEventField(rawValue: 0x33)!, value: Int64(window.windowID))
+
+        down.post(tap: .cgSessionEventTap)
+        up.post(tap: .cgSessionEventTap)
+    }
+}
+
+private struct MenuBarWindow {
+    let windowID: CGWindowID
+    let ownerPID: pid_t
+    let frame: CGRect
 }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
