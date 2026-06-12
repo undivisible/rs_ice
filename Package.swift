@@ -4,9 +4,15 @@ import PackageDescription
 let package = Package(
     name: "RsIceSettingsHost",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(name: "Aurorality", path: "../aurorality"),
+    ],
     targets: [
         .executableTarget(
             name: "RsIceSettingsHost",
+            dependencies: [
+                .product(name: "Aurorality", package: "Aurorality"),
+            ],
             path: "macos",
             exclude: ["Package.swift"],
             sources: [
@@ -14,6 +20,12 @@ let package = Package(
             ],
             resources: [
                 .process("views/settings.crepus"),
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L", "../aurorality/target/debug", "-laurorality_core",
+                    "-framework", "JavaScriptCore",
+                ]),
             ]
         ),
     ]

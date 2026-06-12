@@ -21,11 +21,12 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 - The status item now uses normal click for the Ice show/hide action, control-click for the settings menu, startup Accessibility prompting, and hover-delay state from the real status item frame.
 - The Rust binary now links AppKit and Foundation so it can start the AppKit runtime directly.
 - Swift-hosted direct menu-bar movement attempts were removed; movement must be implemented in Rust by porting upstream Ice's private CGS window discovery and targeted event pipeline.
+- The project-specific Swift status-item host was removed; settings are now loaded through an Aurorality-only SwiftUI entrypoint while Rust owns menu bar behavior.
 
 ## Parity Work Left
 
 - App lifecycle and shared state:
-  - App delegate lifecycle.
+  - Rust AppKit app delegate lifecycle.
   - permission-gated setup.
   - accessory and regular activation policy transitions.
   - app-wide state object equivalent.
@@ -105,6 +106,7 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
   - persistence and logout-sensitive state.
 
 - Settings parity:
+  - Rust-to-Aurorality settings bridge actions.
   - rich Ice icon selection and custom icon picker.
   - Ice Bar pinned location editor.
   - Menu Bar Appearance Configuration V2 editor and renderer.
