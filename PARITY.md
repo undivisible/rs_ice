@@ -18,6 +18,7 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 - Rust menu-bar item snapshots now model upstream identity, owner, display, active-space, on-screen, movability, hideability, section partitioning, and debug inventory output.
 - Rust models visible, hidden, and always-hidden section caches plus item movement plans with ordering, movability, and hideability validation.
 - Rust app state tracks hidden and always-hidden section visibility, temporary show deadlines, and exposes menu actions for both section toggles.
+- The status item now uses normal click for the Ice show/hide action, control-click for the settings menu, startup Accessibility prompting, and hover-delay state from the real status item frame.
 
 ## Parity Work Left
 
@@ -43,7 +44,7 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
   - hidden section.
   - always-hidden section.
   - section divider control items.
-  - native section divider show/hide execution.
+  - native section divider show/hide execution for other menu bar items.
   - Option-key always-hidden toggling.
   - drag-aware section visibility.
 

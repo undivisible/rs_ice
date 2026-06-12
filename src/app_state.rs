@@ -29,6 +29,7 @@ pub struct AppState {
     always_hidden_section: SectionState,
     rehide_deadline: Option<Instant>,
     temporary_show_deadline: Option<Instant>,
+    hover_show_deadline: Option<Instant>,
     permissions: PermissionSnapshot,
 }
 
@@ -50,6 +51,7 @@ impl AppState {
             },
             rehide_deadline: None,
             temporary_show_deadline: None,
+            hover_show_deadline: None,
             permissions: PermissionSnapshot::default(),
         }
     }
@@ -88,6 +90,10 @@ impl AppState {
 
     pub fn temporary_show_deadline(&self) -> Option<Instant> {
         self.temporary_show_deadline
+    }
+
+    pub fn hover_show_deadline(&self) -> Option<Instant> {
+        self.hover_show_deadline
     }
 
     pub fn permissions(&self) -> PermissionSnapshot {
@@ -158,7 +164,40 @@ impl AppState {
         }
     }
 
+    pub fn handle_ice_button_click(&mut self, now: Instant) {
+        self.handle_empty_menu_bar_click(now);
+    }
+
+    pub fn handle_ice_button_hover(&mut self, now: Instant, hovering: bool) {
+        if !self.settings.show_on_hover {
+            self.hover_show_deadline = None;
+            return;
+        }
+
+        if self.hidden_section_is_shown() {
+            self.hover_show_deadline = None;
+            return;
+        }
+
+        if hovering {
+            if self.hover_show_deadline.is_none() {
+                self.hover_show_deadline =
+                    Some(now + Duration::from_secs_f64(self.settings.show_on_hover_delay_secs));
+            }
+        } else {
+            self.hover_show_deadline = None;
+        }
+    }
+
     pub fn tick(&mut self, now: Instant) {
+        if self
+            .hover_show_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.hover_show_deadline = None;
+            self.show_hidden_section(now);
+        }
+
         if self
             .temporary_show_deadline
             .is_some_and(|deadline| now >= deadline)
@@ -338,6 +377,54 @@ mod tests {
         state.handle_empty_menu_bar_click(Instant::now());
 
         assert!(!state.hidden_section_is_shown());
+    }
+
+    #[test]
+    fn ice_button_click_uses_click_setting() {
+        let mut state = AppState::new(Settings {
+            show_on_click: true,
+            ..Settings::default()
+        });
+
+        state.handle_ice_button_click(Instant::now());
+
+        assert!(state.hidden_section_is_shown());
+    }
+
+    #[test]
+    fn hover_trigger_waits_for_configured_delay() {
+        let now = Instant::now();
+        let mut state = AppState::new(Settings {
+            show_on_hover: true,
+            show_on_hover_delay_secs: 0.5,
+            ..Settings::default()
+        });
+
+        state.handle_ice_button_hover(now, true);
+        assert_eq!(
+            state.hover_show_deadline(),
+            Some(now + Duration::from_millis(500))
+        );
+
+        state.tick(now + Duration::from_millis(499));
+        assert!(!state.hidden_section_is_shown());
+
+        state.tick(now + Duration::from_millis(500));
+        assert!(state.hidden_section_is_shown());
+    }
+
+    #[test]
+    fn hover_trigger_clears_when_pointer_leaves() {
+        let now = Instant::now();
+        let mut state = AppState::new(Settings {
+            show_on_hover: true,
+            ..Settings::default()
+        });
+
+        state.handle_ice_button_hover(now, true);
+        state.handle_ice_button_hover(now, false);
+
+        assert_eq!(state.hover_show_deadline(), None);
     }
 
     #[test]

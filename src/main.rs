@@ -12,7 +12,7 @@ use rs_ice::settings::{IceBarLocation, RehideStrategy, SettingsStore};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 type Id = *mut Object;
 
@@ -20,6 +20,28 @@ const NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY: isize = 1;
 const NS_VARIABLE_STATUS_ITEM_LENGTH: f64 = -1.0;
 const NS_CONTROL_STATE_VALUE_OFF: i64 = 0;
 const NS_CONTROL_STATE_VALUE_ON: i64 = 1;
+const NSEVENT_MODIFIER_FLAG_CONTROL: u64 = 1 << 18;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSPoint {
+    x: f64,
+    y: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSSize {
+    width: f64,
+    height: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSRect {
+    origin: NSPoint,
+    size: NSSize,
+}
 
 static RUNTIME: OnceLock<Mutex<AppRuntime>> = OnceLock::new();
 
@@ -35,6 +57,7 @@ struct AppRuntime {
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn AXIsProcessTrusted() -> bool;
+    fn AXIsProcessTrustedWithOptions(options: Id) -> bool;
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -58,6 +81,10 @@ fn main() {
         let permissions = CocoaPermissionChecker;
         let mut state = AppState::load(&store);
         state.refresh_permissions(&permissions);
+        if !state.permissions().accessibility.granted {
+            request_accessibility_permission_prompt();
+            state.refresh_permissions(&permissions);
+        }
 
         RUNTIME
             .set(Mutex::new(AppRuntime {
@@ -71,6 +98,7 @@ fn main() {
             .unwrap_or_else(|_| panic!("runtime should be initialized once"));
 
         rebuild_status_item();
+        schedule_hover_timer(target);
 
         log::info!("rs_ice ready.");
         let _: () = msg_send![app, run];
@@ -100,18 +128,19 @@ unsafe fn rebuild_status_item() {
 
     let status_item = runtime.status_item as Id;
     let target = runtime.target as Id;
-    let app = runtime.app as Id;
     let snapshot = MenuSnapshot::from_state(&runtime.state);
 
-    configure_status_button(status_item, &snapshot);
-    let menu = build_menu(app, target, &snapshot);
-    let _: () = msg_send![status_item, setMenu: menu];
+    configure_status_button(status_item, target, &snapshot);
+    let _: () = msg_send![status_item, setMenu: std::ptr::null_mut::<Object>()];
 }
 
-unsafe fn configure_status_button(item: Id, snapshot: &MenuSnapshot) {
+unsafe fn configure_status_button(item: Id, target: Id, snapshot: &MenuSnapshot) {
     let button: Id = msg_send![item, button];
 
     if !button.is_null() {
+        let _: () = msg_send![button, setTarget: target];
+        let _: () = msg_send![button, setAction: sel!(iceButtonPressed:)];
+
         if snapshot.ice_icon_visible {
             let image: Id = msg_send![
                 class!(NSImage),
@@ -468,6 +497,10 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
         .expect("menu target class should be registered once");
 
     decl.add_method(
+        sel!(iceButtonPressed:),
+        ice_button_pressed as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
         sel!(toggleHiddenSection:),
         toggle_hidden_section as extern "C" fn(&Object, Sel, Id),
     );
@@ -643,8 +676,30 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
         sel!(rehideTimerFired:),
         rehide_timer_fired as extern "C" fn(&Object, Sel, Id),
     );
+    decl.add_method(
+        sel!(hoverTimerFired:),
+        hover_timer_fired as extern "C" fn(&Object, Sel, Id),
+    );
     decl.add_method(sel!(noop:), noop as extern "C" fn(&Object, Sel, Id));
     decl.register()
+}
+
+extern "C" fn ice_button_pressed(_: &Object, _: Sel, _: Id) {
+    if current_event_is_control_click() {
+        unsafe {
+            show_settings_menu();
+        }
+        return;
+    }
+
+    mutate_runtime(|runtime| {
+        if !runtime.state.permissions().accessibility.granted {
+            request_accessibility_permission_prompt();
+            let permissions = runtime.permissions;
+            runtime.state.refresh_permissions(&permissions);
+        }
+        runtime.state.handle_ice_button_click(Instant::now());
+    });
 }
 
 extern "C" fn toggle_hidden_section(_: &Object, _: Sel, _: Id) {
@@ -883,6 +938,15 @@ extern "C" fn rehide_timer_fired(_: &Object, _: Sel, _: Id) {
     mutate_runtime(|runtime| runtime.state.tick(Instant::now()));
 }
 
+extern "C" fn hover_timer_fired(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        let hovering = unsafe { pointer_is_over_status_item(runtime.status_item as Id) };
+        runtime
+            .state
+            .handle_ice_button_hover(Instant::now(), hovering);
+    });
+}
+
 extern "C" fn noop(_: &Object, _: Sel, _: Id) {}
 
 fn set_rehide_strategy(strategy: RehideStrategy) {
@@ -954,6 +1018,41 @@ fn mutate_runtime(body: impl FnOnce(&mut AppRuntime)) {
     }
 }
 
+unsafe fn show_settings_menu() {
+    let runtime = RUNTIME
+        .get()
+        .expect("runtime must exist before showing settings")
+        .lock()
+        .expect("runtime mutex should not be poisoned");
+    let status_item = runtime.status_item as Id;
+    let target = runtime.target as Id;
+    let app = runtime.app as Id;
+    let snapshot = MenuSnapshot::from_state(&runtime.state);
+    let menu = build_menu(app, target, &snapshot);
+    let _: () = msg_send![status_item, popUpStatusItemMenu: menu];
+}
+
+fn current_event_is_control_click() -> bool {
+    unsafe {
+        let app = shared_application();
+        let event: Id = msg_send![app, currentEvent];
+        if event.is_null() {
+            return false;
+        }
+        let flags: u64 = msg_send![event, modifierFlags];
+        flags & NSEVENT_MODIFIER_FLAG_CONTROL != 0
+    }
+}
+
+fn request_accessibility_permission_prompt() -> bool {
+    unsafe {
+        let key = ns_string("AXTrustedCheckOptionPrompt");
+        let value: Id = msg_send![class!(NSNumber), numberWithBool: true];
+        let options: Id = msg_send![class!(NSDictionary), dictionaryWithObject: value forKey: key];
+        AXIsProcessTrustedWithOptions(options)
+    }
+}
+
 fn schedule_rehide_timer(deadline: Instant, target: Id) {
     let delay = deadline.saturating_duration_since(Instant::now());
     unsafe {
@@ -966,6 +1065,38 @@ fn schedule_rehide_timer(deadline: Instant, target: Id) {
             repeats: false
         ];
     }
+}
+
+fn schedule_hover_timer(target: Id) {
+    unsafe {
+        let _: Id = msg_send![
+            class!(NSTimer),
+            scheduledTimerWithTimeInterval: Duration::from_millis(100).as_secs_f64()
+            target: target
+            selector: sel!(hoverTimerFired:)
+            userInfo: std::ptr::null_mut::<Object>()
+            repeats: true
+        ];
+    }
+}
+
+unsafe fn pointer_is_over_status_item(status_item: Id) -> bool {
+    let button: Id = msg_send![status_item, button];
+    if button.is_null() {
+        return false;
+    }
+
+    let window: Id = msg_send![button, window];
+    if window.is_null() {
+        return false;
+    }
+
+    let frame: NSRect = msg_send![window, frame];
+    let point: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+    point.x >= frame.origin.x
+        && point.x <= frame.origin.x + frame.size.width
+        && point.y >= frame.origin.y
+        && point.y <= frame.origin.y + frame.size.height
 }
 
 fn open_system_settings(url: &str) {
