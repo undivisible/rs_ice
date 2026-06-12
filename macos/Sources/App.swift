@@ -19,11 +19,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private var defaultsObserver: NSObjectProtocol?
+    private var hoverTimer: Timer?
+    private var hoverStartedAt: Date?
+    private var hiddenSectionShown = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        requestAccessibilityPermissionIfNeeded()
         configurePopover()
         configureStatusItem()
+        configureHoverTimer()
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -39,6 +44,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
+        hoverTimer?.invalidate()
     }
 
     private func configureStatusItem() {
@@ -47,7 +53,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let button = item.button {
             button.target = self
-            button.action = #selector(togglePopover(_:))
+            button.action = #selector(statusItemPressed(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
@@ -60,9 +66,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let showIceIcon = defaults.object(forKey: "ShowIceIcon") as? Bool ?? true
 
         if let button = statusItem?.button {
-            button.image = showIceIcon ? NSImage(systemSymbolName: "snowflake", accessibilityDescription: "Ice") : nil
+            let symbolName = hiddenSectionShown ? "snowflake.circle.fill" : "snowflake"
+            button.image = showIceIcon ? NSImage(systemSymbolName: symbolName, accessibilityDescription: "Ice") : nil
             button.imagePosition = .imageLeading
-            button.title = "Ice"
+            button.title = showIceIcon ? "" : (hiddenSectionShown ? "Ice Shown" : "Ice")
+            button.contentTintColor = hiddenSectionShown ? .controlAccentColor : nil
         }
     }
 
@@ -75,7 +83,56 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    @objc private func togglePopover(_ sender: AnyObject?) {
+    private func configureHoverTimer() {
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleHoverTimer()
+            }
+        }
+    }
+
+    private func handleHoverTimer() {
+        let defaults = UserDefaults.standard
+        let showOnHover = defaults.object(forKey: "ShowOnHover") as? Bool ?? false
+        guard showOnHover, let button = statusItem?.button, let window = button.window else {
+            hoverStartedAt = nil
+            return
+        }
+
+        let mouse = NSEvent.mouseLocation
+        guard window.frame.contains(mouse) else {
+            hoverStartedAt = nil
+            return
+        }
+
+        if hiddenSectionShown {
+            hoverStartedAt = nil
+            return
+        }
+
+        let startedAt = hoverStartedAt ?? Date()
+        hoverStartedAt = startedAt
+        let delay = defaults.object(forKey: "ShowOnHoverDelay") as? Double ?? 0.2
+        if Date().timeIntervalSince(startedAt) >= delay {
+            setHiddenSectionShown(true)
+            hoverStartedAt = nil
+        }
+    }
+
+    @objc private func statusItemPressed(_ sender: AnyObject?) {
+        guard let event = NSApp.currentEvent else {
+            toggleHiddenSection()
+            return
+        }
+
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            togglePopover(sender)
+        } else {
+            toggleHiddenSection()
+        }
+    }
+
+    private func togglePopover(_ sender: AnyObject?) {
         guard let button = statusItem?.button else {
             return
         }
@@ -86,6 +143,34 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+
+    private func toggleHiddenSection() {
+        let defaults = UserDefaults.standard
+        let showOnClick = defaults.object(forKey: "ShowOnClick") as? Bool ?? true
+        guard showOnClick else {
+            return
+        }
+
+        if !AXIsProcessTrusted() {
+            requestAccessibilityPermissionIfNeeded()
+        }
+
+        setHiddenSectionShown(!hiddenSectionShown)
+    }
+
+    private func setHiddenSectionShown(_ shown: Bool) {
+        hiddenSectionShown = shown
+        updateStatusButton()
+    }
+
+    private func requestAccessibilityPermissionIfNeeded() {
+        guard !AXIsProcessTrusted() else {
+            return
+        }
+
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
     }
 }
 
