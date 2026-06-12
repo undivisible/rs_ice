@@ -9,7 +9,10 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 - AppKit accessory app starts from Rust.
 - One menu bar status item is created.
 - The status item uses a snowflake symbol when available and falls back to text.
-- The status item menu has Quit.
+- The status item menu can toggle the hidden section and simple upstream-compatible settings.
+- The Swift/Aurorality menu-bar popover exposes native groups for General, Ice Bar, and Advanced simple settings.
+- Rust settings persistence covers upstream defaults keys for general, advanced, Ice Bar, hotkeys, menu bar appearance raw data, and migration flags.
+- Rust preserves upstream-compatible raw data for Codable settings that do not yet have full behavioral editors.
 
 ## Parity Work Left
 
@@ -96,29 +99,10 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
   - persistence and logout-sensitive state.
 
 - Settings parity:
-  - Show Ice Icon.
-  - Ice icon selection.
-  - custom Ice icons.
-  - template rendering for custom icons.
-  - Use Ice Bar.
-  - Ice Bar location.
-  - Show On Click.
-  - Show On Hover.
-  - Show On Scroll.
-  - Item Spacing Offset.
-  - Auto Rehide.
-  - Rehide Strategy.
-  - Rehide Interval.
-  - Hide Application Menus.
-  - Show Section Dividers.
-  - Enable Always-Hidden Section.
-  - Can Toggle Always-Hidden Section.
-  - Show On Hover Delay.
-  - Temporary Show Interval.
-  - Show All Sections On User Drag.
-  - Show Context Menu On Right Click.
-  - Menu Bar Appearance Configuration V2.
-  - Hotkeys.
+  - rich Ice icon selection and custom icon picker.
+  - Ice Bar pinned location editor.
+  - Menu Bar Appearance Configuration V2 editor and renderer.
+  - Hotkey recorder UI and registration.
 
 - Hotkeys:
   - toggle hidden section.

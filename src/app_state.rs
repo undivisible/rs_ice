@@ -1,4 +1,4 @@
-use crate::settings::{RehideStrategy, Settings, SettingsStore};
+use crate::settings::{IceBarLocation, RehideStrategy, Settings, SettingsStore};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +111,26 @@ impl AppState {
         store.save_settings(&self.settings);
     }
 
+    pub fn toggle_show_on_hover(&mut self, store: &mut impl SettingsStore) {
+        self.settings.show_on_hover = !self.settings.show_on_hover;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn toggle_show_on_scroll(&mut self, store: &mut impl SettingsStore) {
+        self.settings.show_on_scroll = !self.settings.show_on_scroll;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn toggle_use_ice_bar(&mut self, store: &mut impl SettingsStore) {
+        self.settings.use_ice_bar = !self.settings.use_ice_bar;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn toggle_custom_ice_icon_is_template(&mut self, store: &mut impl SettingsStore) {
+        self.settings.custom_ice_icon_is_template = !self.settings.custom_ice_icon_is_template;
+        store.save_settings(&self.settings);
+    }
+
     pub fn toggle_auto_rehide(&mut self, store: &mut impl SettingsStore) {
         self.settings.auto_rehide = !self.settings.auto_rehide;
         if !self.settings.auto_rehide {
@@ -172,6 +192,36 @@ impl AppState {
             if self.hidden_section_is_shown() {
                 self.rehide_deadline = self.next_rehide_deadline(Instant::now());
             }
+            store.save_settings(&self.settings);
+        }
+    }
+
+    pub fn set_ice_bar_location(
+        &mut self,
+        store: &mut impl SettingsStore,
+        location: IceBarLocation,
+    ) {
+        self.settings.ice_bar_location = location;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn set_item_spacing_offset(&mut self, store: &mut impl SettingsStore, offset: f64) {
+        if offset.is_finite() {
+            self.settings.item_spacing_offset = offset;
+            store.save_settings(&self.settings);
+        }
+    }
+
+    pub fn set_show_on_hover_delay(&mut self, store: &mut impl SettingsStore, secs: f64) {
+        if secs.is_finite() && secs >= 0.0 {
+            self.settings.show_on_hover_delay_secs = secs;
+            store.save_settings(&self.settings);
+        }
+    }
+
+    pub fn set_temp_show_interval(&mut self, store: &mut impl SettingsStore, secs: f64) {
+        if secs.is_finite() && secs > 0.0 {
+            self.settings.temp_show_interval_secs = secs;
             store.save_settings(&self.settings);
         }
     }

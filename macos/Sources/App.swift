@@ -89,6 +89,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case general = "General"
+    case iceBar = "Ice Bar"
     case advanced = "Advanced"
 
     var id: String { rawValue }
@@ -110,9 +111,31 @@ private enum RehideStrategy: Int, CaseIterable, Identifiable {
     }
 }
 
+private enum IceBarLocation: Int, CaseIterable, Identifiable {
+    case dynamic = 0
+    case mousePointer = 1
+    case iceIcon = 2
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .dynamic: "Dynamic"
+        case .mousePointer: "Mouse pointer"
+        case .iceIcon: "Ice icon"
+        }
+    }
+}
+
 private struct IcePanel: View {
     @AppStorage("ShowIceIcon") private var showIceIcon = true
+    @AppStorage("CustomIceIconIsTemplate") private var customIceIconIsTemplate = false
+    @AppStorage("UseIceBar") private var useIceBar = false
+    @AppStorage("IceBarLocation") private var iceBarLocationRaw = IceBarLocation.dynamic.rawValue
     @AppStorage("ShowOnClick") private var showOnClick = true
+    @AppStorage("ShowOnHover") private var showOnHover = false
+    @AppStorage("ShowOnScroll") private var showOnScroll = true
+    @AppStorage("ItemSpacingOffset") private var itemSpacingOffset = 0.0
     @AppStorage("AutoRehide") private var autoRehide = true
     @AppStorage("RehideStrategy") private var rehideStrategyRaw = RehideStrategy.smart.rawValue
     @AppStorage("RehideInterval") private var rehideInterval = 15.0
@@ -120,6 +143,8 @@ private struct IcePanel: View {
     @AppStorage("ShowSectionDividers") private var showSectionDividers = false
     @AppStorage("EnableAlwaysHiddenSection") private var enableAlwaysHiddenSection = false
     @AppStorage("CanToggleAlwaysHiddenSection") private var canToggleAlwaysHiddenSection = true
+    @AppStorage("ShowOnHoverDelay") private var showOnHoverDelay = 0.2
+    @AppStorage("TempShowInterval") private var tempShowInterval = 15.0
     @AppStorage("ShowAllSectionsOnUserDrag") private var showAllSectionsOnUserDrag = true
     @AppStorage("ShowContextMenuOnRightClick") private var contextMenuOnRightClick = true
     @State private var selectedPane = SettingsPane.general
@@ -129,6 +154,14 @@ private struct IcePanel: View {
             RehideStrategy(rawValue: rehideStrategyRaw) ?? .smart
         } set: { strategy in
             rehideStrategyRaw = strategy.rawValue
+        }
+    }
+
+    private var iceBarLocation: Binding<IceBarLocation> {
+        Binding {
+            IceBarLocation(rawValue: iceBarLocationRaw) ?? .dynamic
+        } set: { location in
+            iceBarLocationRaw = location.rawValue
         }
     }
 
@@ -150,6 +183,8 @@ private struct IcePanel: View {
                     switch selectedPane {
                     case .general:
                         generalPane
+                    case .iceBar:
+                        iceBarPane
                     case .advanced:
                         advancedPane
                     }
@@ -197,7 +232,10 @@ private struct IcePanel: View {
             GroupBox("Visibility") {
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle("Show Ice icon", isOn: $showIceIcon)
+                    Toggle("Custom Ice icons render as templates", isOn: $customIceIconIsTemplate)
                     Toggle("Show hidden section on empty menu bar click", isOn: $showOnClick)
+                    Toggle("Show hidden section on hover", isOn: $showOnHover)
+                    Toggle("Show or hide with menu bar scroll", isOn: $showOnScroll)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -218,6 +256,41 @@ private struct IcePanel: View {
                         Text("60 seconds").tag(60.0)
                     }
                     .disabled(!autoRehide)
+                    Picker("Temporary show", selection: $tempShowInterval) {
+                        Text("5 seconds").tag(5.0)
+                        Text("10 seconds").tag(10.0)
+                        Text("15 seconds").tag(15.0)
+                        Text("30 seconds").tag(30.0)
+                        Text("60 seconds").tag(60.0)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox("Spacing") {
+                Picker("Item spacing offset", selection: $itemSpacingOffset) {
+                    Text("-2 pt").tag(-2.0)
+                    Text("-1 pt").tag(-1.0)
+                    Text("0 pt").tag(0.0)
+                    Text("1 pt").tag(1.0)
+                    Text("2 pt").tag(2.0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var iceBarPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GroupBox("Ice Bar") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Use Ice Bar", isOn: $useIceBar)
+                    Picker("Location", selection: iceBarLocation) {
+                        ForEach(IceBarLocation.allCases) { location in
+                            Text(location.title).tag(location)
+                        }
+                    }
+                    .disabled(!useIceBar)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -243,8 +316,17 @@ private struct IcePanel: View {
             }
 
             GroupBox("Input") {
-                Toggle("Show context menu on right click", isOn: $contextMenuOnRightClick)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Hover delay", selection: $showOnHoverDelay) {
+                        Text("0.0 seconds").tag(0.0)
+                        Text("0.2 seconds").tag(0.2)
+                        Text("0.5 seconds").tag(0.5)
+                        Text("1.0 seconds").tag(1.0)
+                    }
+                    .disabled(!showOnHover)
+                    Toggle("Show context menu on right click", isOn: $contextMenuOnRightClick)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

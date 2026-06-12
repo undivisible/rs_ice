@@ -7,9 +7,9 @@ use objc::declare::ClassDecl;
 use objc::runtime::{Object, Sel};
 use rs_ice::app_state::AppState;
 use rs_ice::menu_model::MenuSnapshot;
-use rs_ice::settings::{RehideStrategy, SettingsStore};
+use rs_ice::settings::{IceBarLocation, RehideStrategy, SettingsStore};
 use std::ffi::CString;
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_void};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -142,9 +142,37 @@ unsafe fn build_menu(app: Id, target: Id, snapshot: &MenuSnapshot) -> Id {
     );
     add_check_item(
         menu,
+        "Custom Ice Icon Is Template",
+        snapshot.custom_ice_icon_is_template,
+        sel!(toggleCustomIceIconIsTemplate:),
+        target,
+    );
+    add_check_item(
+        menu,
+        "Use Ice Bar",
+        snapshot.use_ice_bar,
+        sel!(toggleUseIceBar:),
+        target,
+    );
+    add_check_item(
+        menu,
         "Show On Click",
         snapshot.show_on_click,
         sel!(toggleShowOnClick:),
+        target,
+    );
+    add_check_item(
+        menu,
+        "Show On Hover",
+        snapshot.show_on_hover,
+        sel!(toggleShowOnHover:),
+        target,
+    );
+    add_check_item(
+        menu,
+        "Show On Scroll",
+        snapshot.show_on_scroll,
+        sel!(toggleShowOnScroll:),
         target,
     );
     add_check_item(
@@ -221,6 +249,54 @@ unsafe fn build_menu(app: Id, target: Id, snapshot: &MenuSnapshot) -> Id {
     }
     add_submenu(menu, "Rehide Interval", interval_menu);
 
+    let ice_bar_location_menu: Id = msg_send![class!(NSMenu), new];
+    for location in IceBarLocation::ALL {
+        add_check_item(
+            ice_bar_location_menu,
+            location.title(),
+            snapshot.ice_bar_location == location,
+            ice_bar_location_selector(location),
+            target,
+        );
+    }
+    add_submenu(menu, "Ice Bar Location", ice_bar_location_menu);
+
+    let item_spacing_menu: Id = msg_send![class!(NSMenu), new];
+    for offset in [-2.0, -1.0, 0.0, 1.0, 2.0] {
+        add_check_item(
+            item_spacing_menu,
+            &format!("{offset:.0} pt"),
+            (snapshot.item_spacing_offset - offset).abs() < f64::EPSILON,
+            item_spacing_selector(offset),
+            target,
+        );
+    }
+    add_submenu(menu, "Item Spacing Offset", item_spacing_menu);
+
+    let hover_delay_menu: Id = msg_send![class!(NSMenu), new];
+    for secs in [0.0, 0.2, 0.5, 1.0] {
+        add_check_item(
+            hover_delay_menu,
+            &format!("{secs:.1} seconds"),
+            (snapshot.show_on_hover_delay_secs - secs).abs() < f64::EPSILON,
+            hover_delay_selector(secs),
+            target,
+        );
+    }
+    add_submenu(menu, "Show On Hover Delay", hover_delay_menu);
+
+    let temp_show_menu: Id = msg_send![class!(NSMenu), new];
+    for secs in [5.0, 10.0, 15.0, 30.0, 60.0] {
+        add_check_item(
+            temp_show_menu,
+            &format!("{secs:.0} seconds"),
+            (snapshot.temp_show_interval_secs - secs).abs() < f64::EPSILON,
+            temp_show_interval_selector(secs),
+            target,
+        );
+    }
+    add_submenu(menu, "Temporary Show Interval", temp_show_menu);
+
     add_separator(menu);
 
     let quit = menu_item("Quit Ice", sel!(terminate:), "q");
@@ -282,6 +358,14 @@ fn strategy_selector(strategy: RehideStrategy) -> Sel {
     }
 }
 
+fn ice_bar_location_selector(location: IceBarLocation) -> Sel {
+    match location {
+        IceBarLocation::Dynamic => sel!(setIceBarLocationDynamic:),
+        IceBarLocation::MousePointer => sel!(setIceBarLocationMousePointer:),
+        IceBarLocation::IceIcon => sel!(setIceBarLocationIceIcon:),
+    }
+}
+
 fn interval_selector(secs: f64) -> Sel {
     match secs as i64 {
         5 => sel!(setRehideInterval5:),
@@ -290,6 +374,38 @@ fn interval_selector(secs: f64) -> Sel {
         30 => sel!(setRehideInterval30:),
         60 => sel!(setRehideInterval60:),
         _ => sel!(setRehideInterval15:),
+    }
+}
+
+fn item_spacing_selector(offset: f64) -> Sel {
+    match offset as i64 {
+        -2 => sel!(setItemSpacingOffsetMinus2:),
+        -1 => sel!(setItemSpacingOffsetMinus1:),
+        0 => sel!(setItemSpacingOffset0:),
+        1 => sel!(setItemSpacingOffset1:),
+        2 => sel!(setItemSpacingOffset2:),
+        _ => sel!(setItemSpacingOffset0:),
+    }
+}
+
+fn hover_delay_selector(secs: f64) -> Sel {
+    match (secs * 10.0).round() as i64 {
+        0 => sel!(setShowOnHoverDelay0:),
+        2 => sel!(setShowOnHoverDelay02:),
+        5 => sel!(setShowOnHoverDelay05:),
+        10 => sel!(setShowOnHoverDelay1:),
+        _ => sel!(setShowOnHoverDelay02:),
+    }
+}
+
+fn temp_show_interval_selector(secs: f64) -> Sel {
+    match secs as i64 {
+        5 => sel!(setTempShowInterval5:),
+        10 => sel!(setTempShowInterval10:),
+        15 => sel!(setTempShowInterval15:),
+        30 => sel!(setTempShowInterval30:),
+        60 => sel!(setTempShowInterval60:),
+        _ => sel!(setTempShowInterval15:),
     }
 }
 
@@ -311,8 +427,24 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
         toggle_show_ice_icon as extern "C" fn(&Object, Sel, Id),
     );
     decl.add_method(
+        sel!(toggleCustomIceIconIsTemplate:),
+        toggle_custom_ice_icon_is_template as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(toggleUseIceBar:),
+        toggle_use_ice_bar as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
         sel!(toggleShowOnClick:),
         toggle_show_on_click as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(toggleShowOnHover:),
+        toggle_show_on_hover as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(toggleShowOnScroll:),
+        toggle_show_on_scroll as extern "C" fn(&Object, Sel, Id),
     );
     decl.add_method(
         sel!(toggleAutoRehide:),
@@ -375,6 +507,74 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
         set_rehide_interval_60 as extern "C" fn(&Object, Sel, Id),
     );
     decl.add_method(
+        sel!(setIceBarLocationDynamic:),
+        set_ice_bar_location_dynamic as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setIceBarLocationMousePointer:),
+        set_ice_bar_location_mouse_pointer as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setIceBarLocationIceIcon:),
+        set_ice_bar_location_ice_icon as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setItemSpacingOffsetMinus2:),
+        set_item_spacing_offset_minus_2 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setItemSpacingOffsetMinus1:),
+        set_item_spacing_offset_minus_1 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setItemSpacingOffset0:),
+        set_item_spacing_offset_0 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setItemSpacingOffset1:),
+        set_item_spacing_offset_1 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setItemSpacingOffset2:),
+        set_item_spacing_offset_2 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setShowOnHoverDelay0:),
+        set_show_on_hover_delay_0 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setShowOnHoverDelay02:),
+        set_show_on_hover_delay_02 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setShowOnHoverDelay05:),
+        set_show_on_hover_delay_05 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setShowOnHoverDelay1:),
+        set_show_on_hover_delay_1 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setTempShowInterval5:),
+        set_temp_show_interval_5 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setTempShowInterval10:),
+        set_temp_show_interval_10 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setTempShowInterval15:),
+        set_temp_show_interval_15 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setTempShowInterval30:),
+        set_temp_show_interval_30 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(setTempShowInterval60:),
+        set_temp_show_interval_60 as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
         sel!(rehideTimerFired:),
         rehide_timer_fired as extern "C" fn(&Object, Sel, Id),
     );
@@ -392,9 +592,35 @@ extern "C" fn toggle_show_ice_icon(_: &Object, _: Sel, _: Id) {
     });
 }
 
+extern "C" fn toggle_custom_ice_icon_is_template(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .toggle_custom_ice_icon_is_template(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_use_ice_bar(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime.state.toggle_use_ice_bar(&mut runtime.store);
+    });
+}
+
 extern "C" fn toggle_show_on_click(_: &Object, _: Sel, _: Id) {
     mutate_runtime(|runtime| {
         runtime.state.toggle_show_on_click(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_show_on_hover(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime.state.toggle_show_on_hover(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_show_on_scroll(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime.state.toggle_show_on_scroll(&mut runtime.store);
     });
 }
 
@@ -484,6 +710,74 @@ extern "C" fn set_rehide_interval_60(_: &Object, _: Sel, _: Id) {
     set_rehide_interval(60.0);
 }
 
+extern "C" fn set_ice_bar_location_dynamic(_: &Object, _: Sel, _: Id) {
+    set_ice_bar_location(IceBarLocation::Dynamic);
+}
+
+extern "C" fn set_ice_bar_location_mouse_pointer(_: &Object, _: Sel, _: Id) {
+    set_ice_bar_location(IceBarLocation::MousePointer);
+}
+
+extern "C" fn set_ice_bar_location_ice_icon(_: &Object, _: Sel, _: Id) {
+    set_ice_bar_location(IceBarLocation::IceIcon);
+}
+
+extern "C" fn set_item_spacing_offset_minus_2(_: &Object, _: Sel, _: Id) {
+    set_item_spacing_offset(-2.0);
+}
+
+extern "C" fn set_item_spacing_offset_minus_1(_: &Object, _: Sel, _: Id) {
+    set_item_spacing_offset(-1.0);
+}
+
+extern "C" fn set_item_spacing_offset_0(_: &Object, _: Sel, _: Id) {
+    set_item_spacing_offset(0.0);
+}
+
+extern "C" fn set_item_spacing_offset_1(_: &Object, _: Sel, _: Id) {
+    set_item_spacing_offset(1.0);
+}
+
+extern "C" fn set_item_spacing_offset_2(_: &Object, _: Sel, _: Id) {
+    set_item_spacing_offset(2.0);
+}
+
+extern "C" fn set_show_on_hover_delay_0(_: &Object, _: Sel, _: Id) {
+    set_show_on_hover_delay(0.0);
+}
+
+extern "C" fn set_show_on_hover_delay_02(_: &Object, _: Sel, _: Id) {
+    set_show_on_hover_delay(0.2);
+}
+
+extern "C" fn set_show_on_hover_delay_05(_: &Object, _: Sel, _: Id) {
+    set_show_on_hover_delay(0.5);
+}
+
+extern "C" fn set_show_on_hover_delay_1(_: &Object, _: Sel, _: Id) {
+    set_show_on_hover_delay(1.0);
+}
+
+extern "C" fn set_temp_show_interval_5(_: &Object, _: Sel, _: Id) {
+    set_temp_show_interval(5.0);
+}
+
+extern "C" fn set_temp_show_interval_10(_: &Object, _: Sel, _: Id) {
+    set_temp_show_interval(10.0);
+}
+
+extern "C" fn set_temp_show_interval_15(_: &Object, _: Sel, _: Id) {
+    set_temp_show_interval(15.0);
+}
+
+extern "C" fn set_temp_show_interval_30(_: &Object, _: Sel, _: Id) {
+    set_temp_show_interval(30.0);
+}
+
+extern "C" fn set_temp_show_interval_60(_: &Object, _: Sel, _: Id) {
+    set_temp_show_interval(60.0);
+}
+
 extern "C" fn rehide_timer_fired(_: &Object, _: Sel, _: Id) {
     mutate_runtime(|runtime| runtime.state.tick(Instant::now()));
 }
@@ -501,6 +795,38 @@ fn set_rehide_strategy(strategy: RehideStrategy) {
 fn set_rehide_interval(secs: f64) {
     mutate_runtime(|runtime| {
         runtime.state.set_rehide_interval(&mut runtime.store, secs);
+    });
+}
+
+fn set_ice_bar_location(location: IceBarLocation) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .set_ice_bar_location(&mut runtime.store, location);
+    });
+}
+
+fn set_item_spacing_offset(offset: f64) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .set_item_spacing_offset(&mut runtime.store, offset);
+    });
+}
+
+fn set_show_on_hover_delay(secs: f64) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .set_show_on_hover_delay(&mut runtime.store, secs);
+    });
+}
+
+fn set_temp_show_interval(secs: f64) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .set_temp_show_interval(&mut runtime.store, secs);
     });
 }
 
@@ -589,6 +915,25 @@ impl SettingsStore for CocoaSettingsStore {
         }
     }
 
+    fn data_for_key(&self, key: &str) -> Option<Vec<u8>> {
+        unsafe {
+            if !self.has_key(key) {
+                return None;
+            }
+            let data: Id = msg_send![self.defaults(), dataForKey: Self::key(key)];
+            if data.is_null() {
+                return None;
+            }
+            let len: usize = msg_send![data, length];
+            let bytes: *const c_void = msg_send![data, bytes];
+            if bytes.is_null() {
+                return None;
+            }
+            let slice = std::slice::from_raw_parts(bytes as *const u8, len);
+            Some(slice.to_vec())
+        }
+    }
+
     fn set_bool(&mut self, key: &str, value: bool) {
         unsafe {
             let _: () = msg_send![self.defaults(), setBool: value forKey: Self::key(key)];
@@ -604,6 +949,17 @@ impl SettingsStore for CocoaSettingsStore {
     fn set_double(&mut self, key: &str, value: f64) {
         unsafe {
             let _: () = msg_send![self.defaults(), setDouble: value forKey: Self::key(key)];
+        }
+    }
+
+    fn set_data(&mut self, key: &str, value: &[u8]) {
+        unsafe {
+            let data: Id = msg_send![
+                class!(NSData),
+                dataWithBytes: value.as_ptr() as *const c_void
+                length: value.len()
+            ];
+            let _: () = msg_send![self.defaults(), setObject: data forKey: Self::key(key)];
         }
     }
 }
