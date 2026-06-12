@@ -54,6 +54,12 @@ struct AppRuntime {
     permissions: CocoaPermissionChecker,
 }
 
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {}
+
+#[link(name = "Foundation", kind = "framework")]
+extern "C" {}
+
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn AXIsProcessTrusted() -> bool;

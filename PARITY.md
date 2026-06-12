@@ -19,6 +19,8 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 - Rust models visible, hidden, and always-hidden section caches plus item movement plans with ordering, movability, and hideability validation.
 - Rust app state tracks hidden and always-hidden section visibility, temporary show deadlines, and exposes menu actions for both section toggles.
 - The status item now uses normal click for the Ice show/hide action, control-click for the settings menu, startup Accessibility prompting, and hover-delay state from the real status item frame.
+- The Rust binary now links AppKit and Foundation so it can start the AppKit runtime directly.
+- Swift-hosted direct menu-bar movement attempts were removed; movement must be implemented in Rust by porting upstream Ice's private CGS window discovery and targeted event pipeline.
 
 ## Parity Work Left
 
@@ -34,7 +36,7 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
   - permission-gated setup ordering for features that require accessibility or screen recording.
 
 - Menu bar item model:
-  - native enumeration of menu bar items across displays and spaces.
+  - Rust native enumeration of menu bar items across displays and spaces using Ice's private CGS window-list approach.
   - capture app icons.
   - cache menu bar item images.
   - handle fullscreen spaces and system-hidden menu bar state.
@@ -50,7 +52,9 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 
 - Item movement and layout:
   - drag-and-drop layout interface.
-  - native execution for moving individual items between sections.
+  - Rust native execution for moving individual items between sections.
+  - Ice-style targeted command-modified event construction.
+  - event tap matching for movement success/failure.
   - handle movement retries and failure states.
   - support menu bar item groups.
   - support individual spacer items.
