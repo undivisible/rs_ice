@@ -1,20 +1,9 @@
 import AppKit
 import SwiftUI
-import Aurorality
-
-#if SWIFT_PACKAGE
-private func resourceURL(_ name: String, _ ext: String) -> URL? {
-    Bundle.module.url(forResource: name, withExtension: ext)
-}
-#else
-private func resourceURL(_ name: String, _ ext: String) -> URL? {
-    Bundle.main.url(forResource: name, withExtension: ext)
-}
-#endif
 
 @main
 struct RsIceSettingsHostApp: App {
-    @NSApplicationDelegateAdaptor(RsIceMenuBarAppDelegate.self) private var appDelegate
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         Settings {
@@ -24,46 +13,63 @@ struct RsIceSettingsHostApp: App {
 }
 
 @MainActor
-final class RsIceMenuBarAppDelegate: NSObject, NSApplicationDelegate {
+private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
-    private let state = AurorState()
-    private let bridge = {
-        let bridge = AurorBridge()
-        bridge.register(RsIceSettingsPlugin())
-        return bridge
-    }()
+    private var defaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        configureStatusItem()
         configurePopover()
-        load()
+        configureStatusItem()
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateStatusButton()
+            }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
     }
 
     private func configureStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.autosaveName = "rs_ice.settingsHost"
+        item.autosaveName = "rs_ice.visibleStatusItem"
 
         if let button = item.button {
-            button.image = NSImage(
-                systemSymbolName: "snowflake",
-                accessibilityDescription: "Ice"
-            )
             button.target = self
             button.action = #selector(togglePopover(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         statusItem = item
+        updateStatusButton()
+    }
+
+    private func updateStatusButton() {
+        let defaults = UserDefaults.standard
+        let showIceIcon = defaults.object(forKey: "ShowIceIcon") as? Bool ?? true
+
+        if let button = statusItem?.button {
+            button.image = showIceIcon ? NSImage(systemSymbolName: "snowflake", accessibilityDescription: "Ice") : nil
+            button.imagePosition = .imageLeading
+            button.title = "Ice"
+        }
     }
 
     private func configurePopover() {
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 420, height: 560)
+        popover.contentSize = NSSize(width: 420, height: 480)
         popover.contentViewController = NSHostingController(
-            rootView: AurorRootView(state: state)
-                .environment(bridge)
-                .frame(width: 420, height: 560)
+            rootView: IcePanel()
+                .frame(width: 420, height: 480)
         )
     }
 
@@ -72,8 +78,6 @@ final class RsIceMenuBarAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        load()
-
         if popover.isShown {
             popover.performClose(sender)
         } else {
@@ -81,47 +85,157 @@ final class RsIceMenuBarAppDelegate: NSObject, NSApplicationDelegate {
             popover.contentViewController?.view.window?.makeKey()
         }
     }
+}
 
-    private func load() {
-        let snapshot = (try? bridge.invokeData(
-            pluginId: "rsIceSettings",
-            method: "snapshot",
-            as: RsIceSettingsSnapshot.self
-        )) ?? .defaults
+private enum SettingsPane: String, CaseIterable, Identifiable {
+    case general = "General"
+    case advanced = "Advanced"
 
-        let template = resourceURL("settings", "crepus")
-            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-            ?? "span\n  \"Ice Settings\""
+    var id: String { rawValue }
+}
 
-        try? state.load(template: template, context: snapshot.context)
+private enum RehideStrategy: Int, CaseIterable, Identifiable {
+    case smart = 0
+    case timed = 1
+    case focusedApp = 2
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .smart: "Smart"
+        case .timed: "Timed"
+        case .focusedApp: "Focused App"
+        }
     }
 }
 
-struct RsIceSettingsSnapshot: Decodable {
-    let showIceIcon: Bool
-    let showOnClick: Bool
-    let autoRehide: Bool
-    let rehideStrategy: String
-    let rehideInterval: String
-    let contextMenuOnRightClick: Bool
+private struct IcePanel: View {
+    @AppStorage("ShowIceIcon") private var showIceIcon = true
+    @AppStorage("ShowOnClick") private var showOnClick = true
+    @AppStorage("AutoRehide") private var autoRehide = true
+    @AppStorage("RehideStrategy") private var rehideStrategyRaw = RehideStrategy.smart.rawValue
+    @AppStorage("RehideInterval") private var rehideInterval = 15.0
+    @AppStorage("ShowContextMenuOnRightClick") private var contextMenuOnRightClick = true
+    @State private var selectedPane = SettingsPane.general
 
-    static let defaults = RsIceSettingsSnapshot(
-        showIceIcon: true,
-        showOnClick: true,
-        autoRehide: true,
-        rehideStrategy: "Smart",
-        rehideInterval: "15 seconds",
-        contextMenuOnRightClick: true
-    )
+    private var rehideStrategy: Binding<RehideStrategy> {
+        Binding {
+            RehideStrategy(rawValue: rehideStrategyRaw) ?? .smart
+        } set: { strategy in
+            rehideStrategyRaw = strategy.rawValue
+        }
+    }
 
-    var context: [String: ContextValue] {
-        [
-            "showIceIcon": .string(showIceIcon ? "On" : "Off"),
-            "showOnClick": .string(showOnClick ? "On" : "Off"),
-            "autoRehide": .string(autoRehide ? "On" : "Off"),
-            "rehideStrategy": .string(rehideStrategy),
-            "rehideInterval": .string(rehideInterval),
-            "contextMenuOnRightClick": .string(contextMenuOnRightClick ? "On" : "Off"),
-        ]
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            Picker("", selection: $selectedPane) {
+                ForEach(SettingsPane.allCases) { pane in
+                    Text(pane.rawValue).tag(pane)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(12)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    switch selectedPane {
+                    case .general:
+                        generalPane
+                    case .advanced:
+                        advancedPane
+                    }
+                }
+                .padding(14)
+            }
+            Divider()
+            footer
+        }
+        .background(.regularMaterial)
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "snowflake")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Ice")
+                    .font(.headline)
+                Text("Menu Bar Settings")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
+                }
+                .buttonStyle(.borderless)
+                .help("Quit Ice")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    private var generalPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GroupBox("Visibility") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Show Ice icon", isOn: $showIceIcon)
+                    Toggle("Show hidden section on empty menu bar click", isOn: $showOnClick)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox("Rehide") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Auto rehide", isOn: $autoRehide)
+                    Picker("Strategy", selection: rehideStrategy) {
+                        ForEach(RehideStrategy.allCases) { strategy in
+                            Text(strategy.title).tag(strategy)
+                        }
+                    }
+                    Picker("Interval", selection: $rehideInterval) {
+                        Text("5 seconds").tag(5.0)
+                        Text("10 seconds").tag(10.0)
+                        Text("15 seconds").tag(15.0)
+                        Text("30 seconds").tag(30.0)
+                        Text("60 seconds").tag(60.0)
+                    }
+                    .disabled(!autoRehide)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var advancedPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GroupBox("Input") {
+                Toggle("Show context menu on right click", isOn: $contextMenuOnRightClick)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("v0.1.0")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
     }
 }
