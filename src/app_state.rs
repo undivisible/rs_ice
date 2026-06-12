@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 pub enum SectionName {
     Visible,
     Hidden,
+    AlwaysHidden,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,7 +26,9 @@ pub struct AppState {
     settings: Settings,
     visible_section: SectionState,
     hidden_section: SectionState,
+    always_hidden_section: SectionState,
     rehide_deadline: Option<Instant>,
+    temporary_show_deadline: Option<Instant>,
     permissions: PermissionSnapshot,
 }
 
@@ -41,7 +44,12 @@ impl AppState {
                 name: SectionName::Hidden,
                 visibility: SectionVisibility::Hidden,
             },
+            always_hidden_section: SectionState {
+                name: SectionName::AlwaysHidden,
+                visibility: SectionVisibility::Hidden,
+            },
             rehide_deadline: None,
+            temporary_show_deadline: None,
             permissions: PermissionSnapshot::default(),
         }
     }
@@ -58,6 +66,10 @@ impl AppState {
         &self.hidden_section
     }
 
+    pub fn always_hidden_section(&self) -> &SectionState {
+        &self.always_hidden_section
+    }
+
     pub fn visible_section(&self) -> &SectionState {
         &self.visible_section
     }
@@ -66,8 +78,16 @@ impl AppState {
         self.hidden_section.visibility == SectionVisibility::Shown
     }
 
+    pub fn always_hidden_section_is_shown(&self) -> bool {
+        self.always_hidden_section.visibility == SectionVisibility::Shown
+    }
+
     pub fn rehide_deadline(&self) -> Option<Instant> {
         self.rehide_deadline
+    }
+
+    pub fn temporary_show_deadline(&self) -> Option<Instant> {
+        self.temporary_show_deadline
     }
 
     pub fn permissions(&self) -> PermissionSnapshot {
@@ -86,14 +106,46 @@ impl AppState {
         }
     }
 
+    pub fn toggle_always_hidden_section(&mut self, now: Instant) {
+        if !self.settings.enable_always_hidden_section
+            || !self.settings.can_toggle_always_hidden_section
+        {
+            return;
+        }
+
+        if self.always_hidden_section_is_shown() {
+            self.hide_always_hidden_section();
+        } else {
+            self.show_always_hidden_section(now);
+        }
+    }
+
     pub fn show_hidden_section(&mut self, now: Instant) {
         self.hidden_section.visibility = SectionVisibility::Shown;
         self.rehide_deadline = self.next_rehide_deadline(now);
     }
 
+    pub fn show_hidden_section_temporarily(&mut self, now: Instant) {
+        self.show_hidden_section(now);
+        self.temporary_show_deadline = Some(self.next_temporary_show_deadline(now));
+    }
+
     pub fn hide_hidden_section(&mut self) {
         self.hidden_section.visibility = SectionVisibility::Hidden;
+        self.hide_always_hidden_section();
         self.rehide_deadline = None;
+        self.temporary_show_deadline = None;
+    }
+
+    pub fn show_always_hidden_section(&mut self, now: Instant) {
+        self.show_hidden_section(now);
+        self.always_hidden_section.visibility = SectionVisibility::Shown;
+        self.temporary_show_deadline = Some(self.next_temporary_show_deadline(now));
+    }
+
+    pub fn hide_always_hidden_section(&mut self) {
+        self.always_hidden_section.visibility = SectionVisibility::Hidden;
+        self.temporary_show_deadline = None;
     }
 
     pub fn handle_empty_menu_bar_click(&mut self, now: Instant) {
@@ -107,6 +159,13 @@ impl AppState {
     }
 
     pub fn tick(&mut self, now: Instant) {
+        if self
+            .temporary_show_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.hide_always_hidden_section();
+        }
+
         if self.rehide_deadline.is_some_and(|deadline| now >= deadline) {
             self.hide_hidden_section();
         }
@@ -170,12 +229,18 @@ impl AppState {
 
     pub fn toggle_enable_always_hidden_section(&mut self, store: &mut impl SettingsStore) {
         self.settings.enable_always_hidden_section = !self.settings.enable_always_hidden_section;
+        if !self.settings.enable_always_hidden_section {
+            self.hide_always_hidden_section();
+        }
         store.save_settings(&self.settings);
     }
 
     pub fn toggle_can_toggle_always_hidden_section(&mut self, store: &mut impl SettingsStore) {
         self.settings.can_toggle_always_hidden_section =
             !self.settings.can_toggle_always_hidden_section;
+        if !self.settings.can_toggle_always_hidden_section {
+            self.hide_always_hidden_section();
+        }
         store.save_settings(&self.settings);
     }
 
@@ -244,6 +309,10 @@ impl AppState {
 
         Some(now + Duration::from_secs_f64(self.settings.rehide_interval_secs))
     }
+
+    fn next_temporary_show_deadline(&self, now: Instant) -> Instant {
+        now + Duration::from_secs_f64(self.settings.temp_show_interval_secs)
+    }
 }
 
 #[cfg(test)]
@@ -256,6 +325,7 @@ mod tests {
         let state = AppState::new(Settings::default());
 
         assert!(!state.hidden_section_is_shown());
+        assert!(!state.always_hidden_section_is_shown());
     }
 
     #[test]
@@ -285,6 +355,61 @@ mod tests {
 
         state.tick(now + Duration::from_secs(5));
         assert!(!state.hidden_section_is_shown());
+    }
+
+    #[test]
+    fn always_hidden_toggle_respects_settings_and_temp_interval() {
+        let now = Instant::now();
+        let mut state = AppState::new(Settings {
+            enable_always_hidden_section: true,
+            can_toggle_always_hidden_section: true,
+            temp_show_interval_secs: 5.0,
+            ..Settings::default()
+        });
+
+        state.toggle_always_hidden_section(now);
+
+        assert!(state.hidden_section_is_shown());
+        assert!(state.always_hidden_section_is_shown());
+        assert_eq!(
+            state.temporary_show_deadline(),
+            Some(now + Duration::from_secs(5))
+        );
+
+        state.tick(now + Duration::from_secs(5));
+
+        assert!(state.hidden_section_is_shown());
+        assert!(!state.always_hidden_section_is_shown());
+    }
+
+    #[test]
+    fn always_hidden_toggle_is_ignored_when_disabled() {
+        let mut state = AppState::new(Settings {
+            enable_always_hidden_section: false,
+            can_toggle_always_hidden_section: true,
+            ..Settings::default()
+        });
+
+        state.toggle_always_hidden_section(Instant::now());
+
+        assert!(!state.always_hidden_section_is_shown());
+    }
+
+    #[test]
+    fn hiding_hidden_section_hides_always_hidden_section() {
+        let now = Instant::now();
+        let mut state = AppState::new(Settings {
+            enable_always_hidden_section: true,
+            can_toggle_always_hidden_section: true,
+            ..Settings::default()
+        });
+
+        state.show_always_hidden_section(now);
+        state.hide_hidden_section();
+
+        assert!(!state.hidden_section_is_shown());
+        assert!(!state.always_hidden_section_is_shown());
+        assert_eq!(state.temporary_show_deadline(), None);
     }
 
     #[test]

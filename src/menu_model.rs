@@ -9,6 +9,7 @@ pub struct MenuSnapshot {
     pub use_ice_bar: bool,
     pub ice_bar_location: IceBarLocation,
     pub hidden_section_visible: bool,
+    pub always_hidden_section_visible: bool,
     pub show_on_click: bool,
     pub show_on_hover: bool,
     pub show_on_scroll: bool,
@@ -37,6 +38,7 @@ impl MenuSnapshot {
             use_ice_bar: settings.use_ice_bar,
             ice_bar_location: settings.ice_bar_location,
             hidden_section_visible: state.hidden_section_is_shown(),
+            always_hidden_section_visible: state.always_hidden_section_is_shown(),
             show_on_click: settings.show_on_click,
             show_on_hover: settings.show_on_hover,
             show_on_scroll: settings.show_on_scroll,
@@ -64,6 +66,14 @@ impl MenuSnapshot {
         }
     }
 
+    pub fn always_hidden_toggle_title(&self) -> &'static str {
+        if self.always_hidden_section_visible {
+            "Hide Always-Hidden Section"
+        } else {
+            "Show Always-Hidden Section"
+        }
+    }
+
     pub fn permissions_title(&self) -> &'static str {
         match self.permissions.state() {
             PermissionsState::MissingPermissions => "Permissions Missing",
@@ -88,5 +98,26 @@ mod tests {
         state.toggle_hidden_section();
         let shown = MenuSnapshot::from_state(&state);
         assert_eq!(shown.hidden_toggle_title(), "Hide Hidden Section");
+    }
+
+    #[test]
+    fn always_hidden_toggle_title_tracks_state() {
+        let mut state = AppState::new(Settings {
+            enable_always_hidden_section: true,
+            can_toggle_always_hidden_section: true,
+            ..Settings::default()
+        });
+        let hidden = MenuSnapshot::from_state(&state);
+        assert_eq!(
+            hidden.always_hidden_toggle_title(),
+            "Show Always-Hidden Section"
+        );
+
+        state.toggle_always_hidden_section(std::time::Instant::now());
+        let shown = MenuSnapshot::from_state(&state);
+        assert_eq!(
+            shown.always_hidden_toggle_title(),
+            "Hide Always-Hidden Section"
+        );
     }
 }

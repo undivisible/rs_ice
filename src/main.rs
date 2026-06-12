@@ -149,6 +149,13 @@ unsafe fn build_menu(app: Id, target: Id, snapshot: &MenuSnapshot) -> Id {
         "",
         target,
     );
+    add_item(
+        menu,
+        snapshot.always_hidden_toggle_title(),
+        sel!(toggleAlwaysHiddenSection:),
+        "",
+        target,
+    );
     add_separator(menu);
     add_item(
         menu,
@@ -465,6 +472,10 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
         toggle_hidden_section as extern "C" fn(&Object, Sel, Id),
     );
     decl.add_method(
+        sel!(toggleAlwaysHiddenSection:),
+        toggle_always_hidden_section as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
         sel!(refreshPermissions:),
         refresh_permissions as extern "C" fn(&Object, Sel, Id),
     );
@@ -638,6 +649,12 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
 
 extern "C" fn toggle_hidden_section(_: &Object, _: Sel, _: Id) {
     mutate_runtime(|runtime| runtime.state.toggle_hidden_section());
+}
+
+extern "C" fn toggle_always_hidden_section(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime.state.toggle_always_hidden_section(Instant::now());
+    });
 }
 
 extern "C" fn refresh_permissions(_: &Object, _: Sel, _: Id) {
