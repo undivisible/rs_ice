@@ -1,4 +1,5 @@
 use crate::app_state::AppState;
+use crate::permissions::{PermissionSnapshot, PermissionsState};
 use crate::settings::{IceBarLocation, RehideStrategy};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +24,7 @@ pub struct MenuSnapshot {
     pub temp_show_interval_secs: f64,
     pub show_all_sections_on_user_drag: bool,
     pub show_context_menu_on_right_click: bool,
+    pub permissions: PermissionSnapshot,
 }
 
 impl MenuSnapshot {
@@ -50,6 +52,7 @@ impl MenuSnapshot {
             temp_show_interval_secs: settings.temp_show_interval_secs,
             show_all_sections_on_user_drag: settings.show_all_sections_on_user_drag,
             show_context_menu_on_right_click: settings.show_context_menu_on_right_click,
+            permissions: state.permissions(),
         }
     }
 
@@ -58,6 +61,14 @@ impl MenuSnapshot {
             "Hide Hidden Section"
         } else {
             "Show Hidden Section"
+        }
+    }
+
+    pub fn permissions_title(&self) -> &'static str {
+        match self.permissions.state() {
+            PermissionsState::MissingPermissions => "Permissions Missing",
+            PermissionsState::HasRequiredPermissions => "Optional Permissions Missing",
+            PermissionsState::HasAllPermissions => "Permissions Granted",
         }
     }
 }

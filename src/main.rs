@@ -7,6 +7,7 @@ use objc::declare::ClassDecl;
 use objc::runtime::{Object, Sel};
 use rs_ice::app_state::AppState;
 use rs_ice::menu_model::MenuSnapshot;
+use rs_ice::permissions::PermissionChecker;
 use rs_ice::settings::{IceBarLocation, RehideStrategy, SettingsStore};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
@@ -28,6 +29,18 @@ struct AppRuntime {
     target: usize,
     state: AppState,
     store: CocoaSettingsStore,
+    permissions: CocoaPermissionChecker,
+}
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 fn main() {
@@ -42,7 +55,9 @@ fn main() {
         let status_item = create_status_item();
         let target: Id = msg_send![target_class, new];
         let store = CocoaSettingsStore;
-        let state = AppState::load(&store);
+        let permissions = CocoaPermissionChecker;
+        let mut state = AppState::load(&store);
+        state.refresh_permissions(&permissions);
 
         RUNTIME
             .set(Mutex::new(AppRuntime {
@@ -51,6 +66,7 @@ fn main() {
                 target: target as usize,
                 state,
                 store,
+                permissions,
             }))
             .unwrap_or_else(|_| panic!("runtime should be initialized once"));
 
@@ -79,6 +95,8 @@ unsafe fn rebuild_status_item() {
         .lock()
         .expect("runtime mutex should not be poisoned");
     runtime.state.tick(Instant::now());
+    let permissions = runtime.permissions;
+    runtime.state.refresh_permissions(&permissions);
 
     let status_item = runtime.status_item as Id;
     let target = runtime.target as Id;
@@ -131,6 +149,30 @@ unsafe fn build_menu(app: Id, target: Id, snapshot: &MenuSnapshot) -> Id {
         "",
         target,
     );
+    add_separator(menu);
+    add_item(
+        menu,
+        snapshot.permissions_title(),
+        sel!(refreshPermissions:),
+        "",
+        target,
+    );
+    let permissions_menu: Id = msg_send![class!(NSMenu), new];
+    add_check_item(
+        permissions_menu,
+        "Accessibility",
+        snapshot.permissions.accessibility.granted,
+        sel!(openAccessibilitySettings:),
+        target,
+    );
+    add_check_item(
+        permissions_menu,
+        "Screen Recording",
+        snapshot.permissions.screen_recording.granted,
+        sel!(requestScreenRecordingPermission:),
+        target,
+    );
+    add_submenu(menu, "Permissions", permissions_menu);
     add_separator(menu);
 
     add_check_item(
@@ -423,6 +465,18 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
         toggle_hidden_section as extern "C" fn(&Object, Sel, Id),
     );
     decl.add_method(
+        sel!(refreshPermissions:),
+        refresh_permissions as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(openAccessibilitySettings:),
+        open_accessibility_settings as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(requestScreenRecordingPermission:),
+        request_screen_recording_permission as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
         sel!(toggleShowIceIcon:),
         toggle_show_ice_icon as extern "C" fn(&Object, Sel, Id),
     );
@@ -584,6 +638,36 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
 
 extern "C" fn toggle_hidden_section(_: &Object, _: Sel, _: Id) {
     mutate_runtime(|runtime| runtime.state.toggle_hidden_section());
+}
+
+extern "C" fn refresh_permissions(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        let permissions = runtime.permissions;
+        runtime.state.refresh_permissions(&permissions);
+    });
+}
+
+extern "C" fn open_accessibility_settings(_: &Object, _: Sel, _: Id) {
+    open_system_settings(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    );
+    mutate_runtime(|runtime| {
+        let permissions = runtime.permissions;
+        runtime.state.refresh_permissions(&permissions);
+    });
+}
+
+extern "C" fn request_screen_recording_permission(_: &Object, _: Sel, _: Id) {
+    unsafe {
+        let _: bool = CGRequestScreenCaptureAccess();
+    }
+    open_system_settings(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+    );
+    mutate_runtime(|runtime| {
+        let permissions = runtime.permissions;
+        runtime.state.refresh_permissions(&permissions);
+    });
 }
 
 extern "C" fn toggle_show_ice_icon(_: &Object, _: Sel, _: Id) {
@@ -864,6 +948,29 @@ fn schedule_rehide_timer(deadline: Instant, target: Id) {
             userInfo: std::ptr::null_mut::<Object>()
             repeats: false
         ];
+    }
+}
+
+fn open_system_settings(url: &str) {
+    unsafe {
+        let ns_url: Id = msg_send![class!(NSURL), URLWithString: ns_string(url)];
+        if !ns_url.is_null() {
+            let workspace: Id = msg_send![class!(NSWorkspace), sharedWorkspace];
+            let _: bool = msg_send![workspace, openURL: ns_url];
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CocoaPermissionChecker;
+
+impl PermissionChecker for CocoaPermissionChecker {
+    fn has_accessibility_permission(&self) -> bool {
+        unsafe { AXIsProcessTrusted() }
+    }
+
+    fn has_screen_recording_permission(&self) -> bool {
+        unsafe { CGPreflightScreenCaptureAccess() }
     }
 }
 

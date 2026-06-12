@@ -13,6 +13,8 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 - The Swift/Aurorality menu-bar popover exposes native groups for General, Ice Bar, and Advanced simple settings.
 - Rust settings persistence covers upstream defaults keys for general, advanced, Ice Bar, hotkeys, menu bar appearance raw data, and migration flags.
 - Rust preserves upstream-compatible raw data for Codable settings that do not yet have full behavioral editors.
+- Rust models accessibility and screen recording permission state and exposes native permission actions from the status menu.
+- The Swift/Aurorality menu-bar popover includes a native Permissions tab with current status and system settings actions.
 
 ## Parity Work Left
 
@@ -24,10 +26,8 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
   - setup ordering for menu bar, settings, events, permissions, hotkeys, updates, notifications, image cache, and migrations.
 
 - Permissions:
-  - screen recording permission checks.
-  - accessibility permission checks.
-  - permissions UI flow.
   - background cursor permission behavior.
+  - permission-gated setup ordering for features that require accessibility or screen recording.
 
 - Menu bar item model:
   - enumerate menu bar items across displays and spaces.

@@ -1,4 +1,6 @@
 import AppKit
+import ApplicationServices
+import CoreGraphics
 import SwiftUI
 
 @main
@@ -90,6 +92,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case general = "General"
     case iceBar = "Ice Bar"
+    case permissions = "Permissions"
     case advanced = "Advanced"
 
     var id: String { rawValue }
@@ -148,6 +151,8 @@ private struct IcePanel: View {
     @AppStorage("ShowAllSectionsOnUserDrag") private var showAllSectionsOnUserDrag = true
     @AppStorage("ShowContextMenuOnRightClick") private var contextMenuOnRightClick = true
     @State private var selectedPane = SettingsPane.general
+    @State private var accessibilityGranted = AXIsProcessTrusted()
+    @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
 
     private var rehideStrategy: Binding<RehideStrategy> {
         Binding {
@@ -185,6 +190,8 @@ private struct IcePanel: View {
                         generalPane
                     case .iceBar:
                         iceBarPane
+                    case .permissions:
+                        permissionsPane
                     case .advanced:
                         advancedPane
                     }
@@ -195,6 +202,7 @@ private struct IcePanel: View {
             footer
         }
         .background(.regularMaterial)
+        .onAppear(perform: refreshPermissions)
     }
 
     private var header: some View {
@@ -297,6 +305,38 @@ private struct IcePanel: View {
         }
     }
 
+    private var permissionsPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GroupBox("Required") {
+                permissionRow(
+                    title: "Accessibility",
+                    granted: accessibilityGranted,
+                    actionTitle: "Open Settings"
+                ) {
+                    openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                    refreshPermissions()
+                }
+            }
+
+            GroupBox("Optional") {
+                permissionRow(
+                    title: "Screen Recording",
+                    granted: screenRecordingGranted,
+                    actionTitle: "Request Access"
+                ) {
+                    CGRequestScreenCaptureAccess()
+                    openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                    refreshPermissions()
+                }
+            }
+
+            Button("Refresh") {
+                refreshPermissions()
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
     private var advancedPane: some View {
         VStack(alignment: .leading, spacing: 12) {
             GroupBox("Application Menus") {
@@ -340,5 +380,32 @@ private struct IcePanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+    }
+
+    private func permissionRow(
+        title: String,
+        granted: Bool,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Label(title, systemImage: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(granted ? .green : .orange)
+            Spacer()
+            Button(actionTitle, action: action)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func refreshPermissions() {
+        accessibilityGranted = AXIsProcessTrusted()
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
+    }
+
+    private func openSystemSettings(_ value: String) {
+        guard let url = URL(string: value) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }

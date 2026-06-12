@@ -1,3 +1,4 @@
+use crate::permissions::{PermissionChecker, PermissionSnapshot};
 use crate::settings::{IceBarLocation, RehideStrategy, Settings, SettingsStore};
 use std::time::{Duration, Instant};
 
@@ -25,6 +26,7 @@ pub struct AppState {
     visible_section: SectionState,
     hidden_section: SectionState,
     rehide_deadline: Option<Instant>,
+    permissions: PermissionSnapshot,
 }
 
 impl AppState {
@@ -40,6 +42,7 @@ impl AppState {
                 visibility: SectionVisibility::Hidden,
             },
             rehide_deadline: None,
+            permissions: PermissionSnapshot::default(),
         }
     }
 
@@ -65,6 +68,14 @@ impl AppState {
 
     pub fn rehide_deadline(&self) -> Option<Instant> {
         self.rehide_deadline
+    }
+
+    pub fn permissions(&self) -> PermissionSnapshot {
+        self.permissions
+    }
+
+    pub fn refresh_permissions(&mut self, checker: &impl PermissionChecker) {
+        self.permissions = PermissionSnapshot::from_checker(checker);
     }
 
     pub fn toggle_hidden_section(&mut self) {
