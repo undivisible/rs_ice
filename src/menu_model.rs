@@ -9,6 +9,11 @@ pub struct MenuSnapshot {
     pub auto_rehide: bool,
     pub rehide_strategy: RehideStrategy,
     pub rehide_interval_secs: f64,
+    pub hide_application_menus: bool,
+    pub show_section_dividers: bool,
+    pub enable_always_hidden_section: bool,
+    pub can_toggle_always_hidden_section: bool,
+    pub show_all_sections_on_user_drag: bool,
     pub show_context_menu_on_right_click: bool,
 }
 
@@ -23,6 +28,11 @@ impl MenuSnapshot {
             auto_rehide: settings.auto_rehide,
             rehide_strategy: settings.rehide_strategy,
             rehide_interval_secs: settings.rehide_interval_secs,
+            hide_application_menus: settings.hide_application_menus,
+            show_section_dividers: settings.show_section_dividers,
+            enable_always_hidden_section: settings.enable_always_hidden_section,
+            can_toggle_always_hidden_section: settings.can_toggle_always_hidden_section,
+            show_all_sections_on_user_drag: settings.show_all_sections_on_user_drag,
             show_context_menu_on_right_click: settings.show_context_menu_on_right_click,
         }
     }

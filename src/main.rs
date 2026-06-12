@@ -161,6 +161,41 @@ unsafe fn build_menu(app: Id, target: Id, snapshot: &MenuSnapshot) -> Id {
         sel!(toggleContextMenuOnRightClick:),
         target,
     );
+    add_check_item(
+        menu,
+        "Hide Application Menus",
+        snapshot.hide_application_menus,
+        sel!(toggleHideApplicationMenus:),
+        target,
+    );
+    add_check_item(
+        menu,
+        "Show Section Dividers",
+        snapshot.show_section_dividers,
+        sel!(toggleShowSectionDividers:),
+        target,
+    );
+    add_check_item(
+        menu,
+        "Enable Always-Hidden Section",
+        snapshot.enable_always_hidden_section,
+        sel!(toggleEnableAlwaysHiddenSection:),
+        target,
+    );
+    add_check_item(
+        menu,
+        "Always-Hidden Section Can Be Shown",
+        snapshot.can_toggle_always_hidden_section,
+        sel!(toggleCanToggleAlwaysHiddenSection:),
+        target,
+    );
+    add_check_item(
+        menu,
+        "Show All Sections On User Drag",
+        snapshot.show_all_sections_on_user_drag,
+        sel!(toggleShowAllSectionsOnUserDrag:),
+        target,
+    );
 
     let strategy_menu: Id = msg_send![class!(NSMenu), new];
     for strategy in RehideStrategy::ALL {
@@ -288,6 +323,26 @@ unsafe fn register_menu_target_class() -> *const objc::runtime::Class {
         toggle_context_menu_on_right_click as extern "C" fn(&Object, Sel, Id),
     );
     decl.add_method(
+        sel!(toggleHideApplicationMenus:),
+        toggle_hide_application_menus as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(toggleShowSectionDividers:),
+        toggle_show_section_dividers as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(toggleEnableAlwaysHiddenSection:),
+        toggle_enable_always_hidden_section as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(toggleCanToggleAlwaysHiddenSection:),
+        toggle_can_toggle_always_hidden_section as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
+        sel!(toggleShowAllSectionsOnUserDrag:),
+        toggle_show_all_sections_on_user_drag as extern "C" fn(&Object, Sel, Id),
+    );
+    decl.add_method(
         sel!(setRehideStrategySmart:),
         set_rehide_strategy_smart as extern "C" fn(&Object, Sel, Id),
     );
@@ -354,6 +409,46 @@ extern "C" fn toggle_context_menu_on_right_click(_: &Object, _: Sel, _: Id) {
         runtime
             .state
             .toggle_context_menu_on_right_click(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_hide_application_menus(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .toggle_hide_application_menus(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_show_section_dividers(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .toggle_show_section_dividers(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_enable_always_hidden_section(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .toggle_enable_always_hidden_section(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_can_toggle_always_hidden_section(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .toggle_can_toggle_always_hidden_section(&mut runtime.store);
+    });
+}
+
+extern "C" fn toggle_show_all_sections_on_user_drag(_: &Object, _: Sel, _: Id) {
+    mutate_runtime(|runtime| {
+        runtime
+            .state
+            .toggle_show_all_sections_on_user_drag(&mut runtime.store);
     });
 }
 

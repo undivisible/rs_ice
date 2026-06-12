@@ -41,6 +41,11 @@ pub struct Settings {
     pub auto_rehide: bool,
     pub rehide_strategy: RehideStrategy,
     pub rehide_interval_secs: f64,
+    pub hide_application_menus: bool,
+    pub show_section_dividers: bool,
+    pub enable_always_hidden_section: bool,
+    pub can_toggle_always_hidden_section: bool,
+    pub show_all_sections_on_user_drag: bool,
     pub show_context_menu_on_right_click: bool,
 }
 
@@ -52,6 +57,11 @@ impl Default for Settings {
             auto_rehide: true,
             rehide_strategy: RehideStrategy::Smart,
             rehide_interval_secs: 15.0,
+            hide_application_menus: true,
+            show_section_dividers: false,
+            enable_always_hidden_section: false,
+            can_toggle_always_hidden_section: true,
+            show_all_sections_on_user_drag: true,
             show_context_menu_on_right_click: true,
         }
     }
@@ -63,6 +73,11 @@ pub mod keys {
     pub const AUTO_REHIDE: &str = "AutoRehide";
     pub const REHIDE_STRATEGY: &str = "RehideStrategy";
     pub const REHIDE_INTERVAL: &str = "RehideInterval";
+    pub const HIDE_APPLICATION_MENUS: &str = "HideApplicationMenus";
+    pub const SHOW_SECTION_DIVIDERS: &str = "ShowSectionDividers";
+    pub const ENABLE_ALWAYS_HIDDEN_SECTION: &str = "EnableAlwaysHiddenSection";
+    pub const CAN_TOGGLE_ALWAYS_HIDDEN_SECTION: &str = "CanToggleAlwaysHiddenSection";
+    pub const SHOW_ALL_SECTIONS_ON_USER_DRAG: &str = "ShowAllSectionsOnUserDrag";
     pub const SHOW_CONTEXT_MENU_ON_RIGHT_CLICK: &str = "ShowContextMenuOnRightClick";
 }
 
@@ -95,6 +110,21 @@ pub trait SettingsStore {
                 .double_for_key(keys::REHIDE_INTERVAL)
                 .filter(|value| value.is_finite() && *value > 0.0)
                 .unwrap_or(defaults.rehide_interval_secs),
+            hide_application_menus: self
+                .bool_for_key(keys::HIDE_APPLICATION_MENUS)
+                .unwrap_or(defaults.hide_application_menus),
+            show_section_dividers: self
+                .bool_for_key(keys::SHOW_SECTION_DIVIDERS)
+                .unwrap_or(defaults.show_section_dividers),
+            enable_always_hidden_section: self
+                .bool_for_key(keys::ENABLE_ALWAYS_HIDDEN_SECTION)
+                .unwrap_or(defaults.enable_always_hidden_section),
+            can_toggle_always_hidden_section: self
+                .bool_for_key(keys::CAN_TOGGLE_ALWAYS_HIDDEN_SECTION)
+                .unwrap_or(defaults.can_toggle_always_hidden_section),
+            show_all_sections_on_user_drag: self
+                .bool_for_key(keys::SHOW_ALL_SECTIONS_ON_USER_DRAG)
+                .unwrap_or(defaults.show_all_sections_on_user_drag),
             show_context_menu_on_right_click: self
                 .bool_for_key(keys::SHOW_CONTEXT_MENU_ON_RIGHT_CLICK)
                 .unwrap_or(defaults.show_context_menu_on_right_click),
@@ -107,6 +137,23 @@ pub trait SettingsStore {
         self.set_bool(keys::AUTO_REHIDE, settings.auto_rehide);
         self.set_integer(keys::REHIDE_STRATEGY, settings.rehide_strategy.raw_value());
         self.set_double(keys::REHIDE_INTERVAL, settings.rehide_interval_secs);
+        self.set_bool(
+            keys::HIDE_APPLICATION_MENUS,
+            settings.hide_application_menus,
+        );
+        self.set_bool(keys::SHOW_SECTION_DIVIDERS, settings.show_section_dividers);
+        self.set_bool(
+            keys::ENABLE_ALWAYS_HIDDEN_SECTION,
+            settings.enable_always_hidden_section,
+        );
+        self.set_bool(
+            keys::CAN_TOGGLE_ALWAYS_HIDDEN_SECTION,
+            settings.can_toggle_always_hidden_section,
+        );
+        self.set_bool(
+            keys::SHOW_ALL_SECTIONS_ON_USER_DRAG,
+            settings.show_all_sections_on_user_drag,
+        );
         self.set_bool(
             keys::SHOW_CONTEXT_MENU_ON_RIGHT_CLICK,
             settings.show_context_menu_on_right_click,
@@ -187,6 +234,11 @@ mod tests {
         assert!(settings.auto_rehide);
         assert_eq!(settings.rehide_strategy, RehideStrategy::Smart);
         assert_eq!(settings.rehide_interval_secs, 15.0);
+        assert!(settings.hide_application_menus);
+        assert!(!settings.show_section_dividers);
+        assert!(!settings.enable_always_hidden_section);
+        assert!(settings.can_toggle_always_hidden_section);
+        assert!(settings.show_all_sections_on_user_drag);
         assert!(settings.show_context_menu_on_right_click);
     }
 
@@ -198,6 +250,11 @@ mod tests {
         store.set(keys::AUTO_REHIDE, Value::Bool(false));
         store.set(keys::REHIDE_STRATEGY, Value::Integer(1));
         store.set(keys::REHIDE_INTERVAL, Value::Double(30.0));
+        store.set(keys::HIDE_APPLICATION_MENUS, Value::Bool(false));
+        store.set(keys::SHOW_SECTION_DIVIDERS, Value::Bool(true));
+        store.set(keys::ENABLE_ALWAYS_HIDDEN_SECTION, Value::Bool(true));
+        store.set(keys::CAN_TOGGLE_ALWAYS_HIDDEN_SECTION, Value::Bool(false));
+        store.set(keys::SHOW_ALL_SECTIONS_ON_USER_DRAG, Value::Bool(false));
         store.set(keys::SHOW_CONTEXT_MENU_ON_RIGHT_CLICK, Value::Bool(false));
 
         let settings = store.load_settings();
@@ -207,6 +264,11 @@ mod tests {
         assert!(!settings.auto_rehide);
         assert_eq!(settings.rehide_strategy, RehideStrategy::Timed);
         assert_eq!(settings.rehide_interval_secs, 30.0);
+        assert!(!settings.hide_application_menus);
+        assert!(settings.show_section_dividers);
+        assert!(settings.enable_always_hidden_section);
+        assert!(!settings.can_toggle_always_hidden_section);
+        assert!(!settings.show_all_sections_on_user_drag);
         assert!(!settings.show_context_menu_on_right_click);
     }
 
@@ -231,6 +293,11 @@ mod tests {
             auto_rehide: false,
             rehide_strategy: RehideStrategy::FocusedApp,
             rehide_interval_secs: 60.0,
+            hide_application_menus: false,
+            show_section_dividers: true,
+            enable_always_hidden_section: true,
+            can_toggle_always_hidden_section: false,
+            show_all_sections_on_user_drag: false,
             show_context_menu_on_right_click: false,
         };
 
@@ -244,6 +311,23 @@ mod tests {
             Some(RehideStrategy::FocusedApp.raw_value())
         );
         assert_eq!(store.double_for_key(keys::REHIDE_INTERVAL), Some(60.0));
+        assert_eq!(
+            store.bool_for_key(keys::HIDE_APPLICATION_MENUS),
+            Some(false)
+        );
+        assert_eq!(store.bool_for_key(keys::SHOW_SECTION_DIVIDERS), Some(true));
+        assert_eq!(
+            store.bool_for_key(keys::ENABLE_ALWAYS_HIDDEN_SECTION),
+            Some(true)
+        );
+        assert_eq!(
+            store.bool_for_key(keys::CAN_TOGGLE_ALWAYS_HIDDEN_SECTION),
+            Some(false)
+        );
+        assert_eq!(
+            store.bool_for_key(keys::SHOW_ALL_SECTIONS_ON_USER_DRAG),
+            Some(false)
+        );
         assert_eq!(
             store.bool_for_key(keys::SHOW_CONTEXT_MENU_ON_RIGHT_CLICK),
             Some(false)

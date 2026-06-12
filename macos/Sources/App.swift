@@ -116,6 +116,11 @@ private struct IcePanel: View {
     @AppStorage("AutoRehide") private var autoRehide = true
     @AppStorage("RehideStrategy") private var rehideStrategyRaw = RehideStrategy.smart.rawValue
     @AppStorage("RehideInterval") private var rehideInterval = 15.0
+    @AppStorage("HideApplicationMenus") private var hideApplicationMenus = true
+    @AppStorage("ShowSectionDividers") private var showSectionDividers = false
+    @AppStorage("EnableAlwaysHiddenSection") private var enableAlwaysHiddenSection = false
+    @AppStorage("CanToggleAlwaysHiddenSection") private var canToggleAlwaysHiddenSection = true
+    @AppStorage("ShowAllSectionsOnUserDrag") private var showAllSectionsOnUserDrag = true
     @AppStorage("ShowContextMenuOnRightClick") private var contextMenuOnRightClick = true
     @State private var selectedPane = SettingsPane.general
 
@@ -221,6 +226,22 @@ private struct IcePanel: View {
 
     private var advancedPane: some View {
         VStack(alignment: .leading, spacing: 12) {
+            GroupBox("Application Menus") {
+                Toggle("Hide application menus when needed", isOn: $hideApplicationMenus)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox("Sections") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Show section dividers", isOn: $showSectionDividers)
+                    Toggle("Enable always-hidden section", isOn: $enableAlwaysHiddenSection)
+                    Toggle("Always-hidden section can be shown", isOn: $canToggleAlwaysHiddenSection)
+                        .disabled(!enableAlwaysHiddenSection)
+                    Toggle("Show all sections while dragging", isOn: $showAllSectionsOnUserDrag)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             GroupBox("Input") {
                 Toggle("Show context menu on right click", isOn: $contextMenuOnRightClick)
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -127,6 +127,33 @@ impl AppState {
         store.save_settings(&self.settings);
     }
 
+    pub fn toggle_hide_application_menus(&mut self, store: &mut impl SettingsStore) {
+        self.settings.hide_application_menus = !self.settings.hide_application_menus;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn toggle_show_section_dividers(&mut self, store: &mut impl SettingsStore) {
+        self.settings.show_section_dividers = !self.settings.show_section_dividers;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn toggle_enable_always_hidden_section(&mut self, store: &mut impl SettingsStore) {
+        self.settings.enable_always_hidden_section = !self.settings.enable_always_hidden_section;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn toggle_can_toggle_always_hidden_section(&mut self, store: &mut impl SettingsStore) {
+        self.settings.can_toggle_always_hidden_section =
+            !self.settings.can_toggle_always_hidden_section;
+        store.save_settings(&self.settings);
+    }
+
+    pub fn toggle_show_all_sections_on_user_drag(&mut self, store: &mut impl SettingsStore) {
+        self.settings.show_all_sections_on_user_drag =
+            !self.settings.show_all_sections_on_user_drag;
+        store.save_settings(&self.settings);
+    }
+
     pub fn set_rehide_strategy(
         &mut self,
         store: &mut impl SettingsStore,
