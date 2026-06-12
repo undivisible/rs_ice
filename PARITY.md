@@ -16,6 +16,7 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 - Rust models accessibility and screen recording permission state and exposes native permission actions from the status menu.
 - The Swift/Aurorality menu-bar popover includes a native Permissions tab with current status and system settings actions.
 - Rust menu-bar item snapshots now model upstream identity, owner, display, active-space, on-screen, movability, hideability, section partitioning, and debug inventory output.
+- Rust models visible, hidden, and always-hidden section caches plus item movement plans with ordering, movability, and hideability validation.
 
 ## Parity Work Left
 
@@ -47,8 +48,7 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 
 - Item movement and layout:
   - drag-and-drop layout interface.
-  - move individual items between sections.
-  - preserve item ordering.
+  - native execution for moving individual items between sections.
   - handle movement retries and failure states.
   - support menu bar item groups.
   - support individual spacer items.

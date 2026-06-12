@@ -197,6 +197,213 @@ pub struct SectionPartition {
     pub always_hidden: Vec<MenuBarItemSnapshot>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuBarSectionName {
+    Visible,
+    Hidden,
+    AlwaysHidden,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SectionItemCache {
+    pub visible: Vec<MenuBarItemSnapshot>,
+    pub hidden: Vec<MenuBarItemSnapshot>,
+    pub always_hidden: Vec<MenuBarItemSnapshot>,
+}
+
+impl SectionItemCache {
+    pub fn new(partition: SectionPartition) -> Self {
+        Self {
+            visible: partition.visible,
+            hidden: partition.hidden,
+            always_hidden: partition.always_hidden,
+        }
+    }
+
+    pub fn managed_items(&self, section: MenuBarSectionName) -> Vec<MenuBarItemSnapshot> {
+        self.items(section)
+            .iter()
+            .filter(|item| item.is_movable() && item.can_be_hidden())
+            .filter(|item| !item.is_ice_control_item() || item.info == MenuBarItemInfo::ice_icon())
+            .cloned()
+            .collect()
+    }
+
+    pub fn all_managed_items(&self) -> Vec<MenuBarItemSnapshot> {
+        [
+            MenuBarSectionName::Visible,
+            MenuBarSectionName::Hidden,
+            MenuBarSectionName::AlwaysHidden,
+        ]
+        .into_iter()
+        .flat_map(|section| self.managed_items(section))
+        .collect()
+    }
+
+    pub fn section_for_info(&self, info: &MenuBarItemInfo) -> Option<MenuBarSectionName> {
+        [
+            (MenuBarSectionName::Visible, &self.visible),
+            (MenuBarSectionName::Hidden, &self.hidden),
+            (MenuBarSectionName::AlwaysHidden, &self.always_hidden),
+        ]
+        .into_iter()
+        .find_map(|(section, items)| {
+            items
+                .iter()
+                .any(|item| item.info == *info)
+                .then_some(section)
+        })
+    }
+
+    pub fn apply_move_plan(&self, plan: &MovePlan) -> Result<Self, MovePlanError> {
+        let source_section = self
+            .section_for_info(&plan.item)
+            .ok_or_else(|| MovePlanError::ItemNotFound(plan.item.clone()))?;
+        let destination_section = self.destination_section(&plan.destination)?;
+        let moving_item = self
+            .items(source_section)
+            .iter()
+            .find(|item| item.info == plan.item)
+            .cloned()
+            .ok_or_else(|| MovePlanError::ItemNotFound(plan.item.clone()))?;
+
+        if !moving_item.is_movable() {
+            return Err(MovePlanError::ItemNotMovable(plan.item.clone()));
+        }
+
+        if destination_section != MenuBarSectionName::Visible && !moving_item.can_be_hidden() {
+            return Err(MovePlanError::ItemCannotBeHidden(plan.item.clone()));
+        }
+
+        let mut next = self.clone();
+        next.items_mut(source_section)
+            .retain(|item| item.info != plan.item);
+        next.insert_moved_item(destination_section, moving_item, &plan.destination)?;
+        Ok(next)
+    }
+
+    fn items(&self, section: MenuBarSectionName) -> &[MenuBarItemSnapshot] {
+        match section {
+            MenuBarSectionName::Visible => &self.visible,
+            MenuBarSectionName::Hidden => &self.hidden,
+            MenuBarSectionName::AlwaysHidden => &self.always_hidden,
+        }
+    }
+
+    fn items_mut(&mut self, section: MenuBarSectionName) -> &mut Vec<MenuBarItemSnapshot> {
+        match section {
+            MenuBarSectionName::Visible => &mut self.visible,
+            MenuBarSectionName::Hidden => &mut self.hidden,
+            MenuBarSectionName::AlwaysHidden => &mut self.always_hidden,
+        }
+    }
+
+    fn destination_section(
+        &self,
+        destination: &MoveDestination,
+    ) -> Result<MenuBarSectionName, MovePlanError> {
+        match destination.target() {
+            target if target == &MenuBarItemInfo::hidden_control_item() => match destination {
+                MoveDestination::LeftOfItem(_) => Ok(MenuBarSectionName::Hidden),
+                MoveDestination::RightOfItem(_) => Ok(MenuBarSectionName::Visible),
+            },
+            target if target == &MenuBarItemInfo::always_hidden_control_item() => match destination
+            {
+                MoveDestination::LeftOfItem(_) => Ok(MenuBarSectionName::AlwaysHidden),
+                MoveDestination::RightOfItem(_) => Ok(MenuBarSectionName::Hidden),
+            },
+            target => self
+                .section_for_info(target)
+                .ok_or_else(|| MovePlanError::TargetNotFound(target.clone())),
+        }
+    }
+
+    fn insert_moved_item(
+        &mut self,
+        section: MenuBarSectionName,
+        item: MenuBarItemSnapshot,
+        destination: &MoveDestination,
+    ) -> Result<(), MovePlanError> {
+        let target = destination.target();
+        let items = self.items_mut(section);
+
+        if target == &MenuBarItemInfo::hidden_control_item()
+            || target == &MenuBarItemInfo::always_hidden_control_item()
+        {
+            match destination {
+                MoveDestination::LeftOfItem(_) => items.push(item),
+                MoveDestination::RightOfItem(_) => items.insert(0, item),
+            }
+            return Ok(());
+        }
+
+        let target_index = items
+            .iter()
+            .position(|candidate| candidate.info == *target)
+            .ok_or_else(|| MovePlanError::TargetNotFound(target.clone()))?;
+        let insert_index = match destination {
+            MoveDestination::LeftOfItem(_) => target_index,
+            MoveDestination::RightOfItem(_) => target_index + 1,
+        };
+        items.insert(insert_index, item);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MoveDestination {
+    LeftOfItem(MenuBarItemInfo),
+    RightOfItem(MenuBarItemInfo),
+}
+
+impl MoveDestination {
+    pub fn target(&self) -> &MenuBarItemInfo {
+        match self {
+            Self::LeftOfItem(item) | Self::RightOfItem(item) => item,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovePlan {
+    pub item: MenuBarItemInfo,
+    pub destination: MoveDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MovePlanError {
+    ItemNotFound(MenuBarItemInfo),
+    TargetNotFound(MenuBarItemInfo),
+    ItemNotMovable(MenuBarItemInfo),
+    ItemCannotBeHidden(MenuBarItemInfo),
+}
+
+pub fn plan_item_move(
+    cache: &SectionItemCache,
+    item: MenuBarItemInfo,
+    destination: MoveDestination,
+) -> Result<MovePlan, MovePlanError> {
+    let source_section = cache
+        .section_for_info(&item)
+        .ok_or_else(|| MovePlanError::ItemNotFound(item.clone()))?;
+    let destination_section = cache.destination_section(&destination)?;
+    let moving_item = cache
+        .items(source_section)
+        .iter()
+        .find(|candidate| candidate.info == item)
+        .ok_or_else(|| MovePlanError::ItemNotFound(item.clone()))?;
+
+    if !moving_item.is_movable() {
+        return Err(MovePlanError::ItemNotMovable(item));
+    }
+
+    if destination_section != MenuBarSectionName::Visible && !moving_item.can_be_hidden() {
+        return Err(MovePlanError::ItemCannotBeHidden(item));
+    }
+
+    Ok(MovePlan { item, destination })
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MenuBarInventory {
     pub items: Vec<MenuBarItemSnapshot>,
@@ -512,6 +719,181 @@ mod tests {
         assert_eq!(
             lines,
             vec!["#42 com.example.App:Item Example x=12.0 w=24.0 pid=123 display=7"]
+        );
+    }
+
+    #[test]
+    fn section_cache_exposes_only_managed_items() {
+        let partition = SectionPartition {
+            visible: vec![
+                item(1, 100.0, 20.0, "com.example.visible", "Visible"),
+                item(2, 120.0, 20.0, namespaces::CONTROL_CENTER, "Clock"),
+                item(
+                    3,
+                    140.0,
+                    20.0,
+                    namespaces::CONTROL_CENTER,
+                    "AudioVideoModule",
+                ),
+                MenuBarItemSnapshot::new(
+                    4,
+                    Rect {
+                        min_x: 160.0,
+                        min_y: 0.0,
+                        width: 20.0,
+                        height: 24.0,
+                    },
+                    MenuBarItemInfo::ice_icon(),
+                ),
+                MenuBarItemSnapshot::new(
+                    5,
+                    Rect {
+                        min_x: 180.0,
+                        min_y: 0.0,
+                        width: 1.0,
+                        height: 24.0,
+                    },
+                    MenuBarItemInfo::hidden_control_item(),
+                ),
+            ],
+            hidden: vec![item(6, 60.0, 20.0, "com.example.hidden", "Hidden")],
+            always_hidden: vec![item(7, 20.0, 20.0, "com.example.always", "Always")],
+        };
+
+        let cache = SectionItemCache::new(partition);
+        let visible = cache.managed_items(MenuBarSectionName::Visible);
+
+        assert_eq!(
+            visible
+                .iter()
+                .map(|item| item.info.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                MenuBarItemInfo::new("com.example.visible", "Visible"),
+                MenuBarItemInfo::ice_icon(),
+            ]
+        );
+    }
+
+    #[test]
+    fn section_cache_finds_section_by_item_identity() {
+        let cache = SectionItemCache::new(SectionPartition {
+            visible: vec![item(1, 100.0, 20.0, "com.example.visible", "Visible")],
+            hidden: vec![item(2, 60.0, 20.0, "com.example.hidden", "Hidden")],
+            always_hidden: vec![item(3, 20.0, 20.0, "com.example.always", "Always")],
+        });
+
+        assert_eq!(
+            cache.section_for_info(&MenuBarItemInfo::new("com.example.hidden", "Hidden")),
+            Some(MenuBarSectionName::Hidden)
+        );
+        assert_eq!(
+            cache.section_for_info(&MenuBarItemInfo::new("com.example.missing", "Missing")),
+            None
+        );
+    }
+
+    #[test]
+    fn move_plan_moves_visible_item_left_of_hidden_divider_into_hidden_section() {
+        let cache = SectionItemCache::new(SectionPartition {
+            visible: vec![item(1, 100.0, 20.0, "com.example.visible", "Visible")],
+            hidden: vec![item(2, 60.0, 20.0, "com.example.hidden", "Hidden")],
+            always_hidden: Vec::new(),
+        });
+        let moving = MenuBarItemInfo::new("com.example.visible", "Visible");
+
+        let plan = plan_item_move(
+            &cache,
+            moving.clone(),
+            MoveDestination::LeftOfItem(MenuBarItemInfo::hidden_control_item()),
+        )
+        .unwrap();
+        let next = cache.apply_move_plan(&plan).unwrap();
+
+        assert_eq!(next.visible, Vec::new());
+        assert_eq!(
+            next.hidden
+                .iter()
+                .map(|item| item.info.clone())
+                .collect::<Vec<_>>(),
+            vec![MenuBarItemInfo::new("com.example.hidden", "Hidden"), moving]
+        );
+    }
+
+    #[test]
+    fn move_plan_preserves_relative_order_around_regular_targets() {
+        let cache = SectionItemCache::new(SectionPartition {
+            visible: vec![
+                item(1, 100.0, 20.0, "com.example.one", "One"),
+                item(2, 120.0, 20.0, "com.example.two", "Two"),
+                item(3, 140.0, 20.0, "com.example.three", "Three"),
+            ],
+            hidden: Vec::new(),
+            always_hidden: Vec::new(),
+        });
+
+        let plan = plan_item_move(
+            &cache,
+            MenuBarItemInfo::new("com.example.three", "Three"),
+            MoveDestination::LeftOfItem(MenuBarItemInfo::new("com.example.one", "One")),
+        )
+        .unwrap();
+        let next = cache.apply_move_plan(&plan).unwrap();
+
+        assert_eq!(
+            next.visible
+                .iter()
+                .map(|item| item.info.title.clone())
+                .collect::<Vec<_>>(),
+            vec!["Three", "One", "Two"]
+        );
+    }
+
+    #[test]
+    fn move_plan_rejects_immovable_items() {
+        let cache = SectionItemCache::new(SectionPartition {
+            visible: vec![item(1, 100.0, 20.0, namespaces::CONTROL_CENTER, "Clock")],
+            hidden: Vec::new(),
+            always_hidden: Vec::new(),
+        });
+
+        let error = plan_item_move(
+            &cache,
+            MenuBarItemInfo::clock(),
+            MoveDestination::LeftOfItem(MenuBarItemInfo::hidden_control_item()),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            MovePlanError::ItemNotMovable(MenuBarItemInfo::clock())
+        );
+    }
+
+    #[test]
+    fn move_plan_rejects_non_hideable_items_moved_to_hidden_sections() {
+        let cache = SectionItemCache::new(SectionPartition {
+            visible: vec![item(
+                1,
+                100.0,
+                20.0,
+                namespaces::CONTROL_CENTER,
+                "AudioVideoModule",
+            )],
+            hidden: Vec::new(),
+            always_hidden: Vec::new(),
+        });
+
+        let error = plan_item_move(
+            &cache,
+            MenuBarItemInfo::audio_video_module(),
+            MoveDestination::LeftOfItem(MenuBarItemInfo::hidden_control_item()),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            MovePlanError::ItemCannotBeHidden(MenuBarItemInfo::audio_video_module())
         );
     }
 }
