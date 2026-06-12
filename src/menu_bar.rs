@@ -12,6 +12,13 @@ impl Rect {
     pub fn max_x(self) -> f64 {
         self.min_x + self.width
     }
+
+    pub fn intersects(self, other: Self) -> bool {
+        self.min_x < other.max_x()
+            && self.max_x() > other.min_x
+            && self.min_y < other.min_y + other.height
+            && self.min_y + self.height > other.min_y
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -76,6 +83,55 @@ impl MenuBarItemInfo {
         ]
         .contains(self)
     }
+
+    pub fn is_ice_control_item(&self) -> bool {
+        [
+            Self::ice_icon(),
+            Self::hidden_control_item(),
+            Self::always_hidden_control_item(),
+        ]
+        .contains(self)
+    }
+
+    pub fn encoded(&self) -> String {
+        format!("{}:{}", self.namespace, self.title)
+    }
+
+    pub fn display_name(
+        &self,
+        owner_name: Option<&str>,
+        bundle_identifier: Option<&str>,
+    ) -> String {
+        let fallback = "Unknown";
+        let best_name = owner_name
+            .or(bundle_identifier)
+            .unwrap_or(fallback)
+            .to_string();
+
+        match bundle_identifier.unwrap_or(&self.namespace) {
+            namespaces::CONTROL_CENTER => match self.title.as_str() {
+                "AccessibilityShortcuts" => "Accessibility Shortcuts".to_string(),
+                "BentoBox" => best_name,
+                "FocusModes" => "Focus".to_string(),
+                "KeyboardBrightness" => "Keyboard Brightness".to_string(),
+                "MusicRecognition" => "Music Recognition".to_string(),
+                "NowPlaying" => "Now Playing".to_string(),
+                "ScreenMirroring" => "Screen Mirroring".to_string(),
+                "StageManager" => "Stage Manager".to_string(),
+                "UserSwitcher" => "Fast User Switching".to_string(),
+                "WiFi" => "Wi-Fi".to_string(),
+                _ => self.title.clone(),
+            },
+            namespaces::SYSTEM_UI_SERVER => match self.title.as_str() {
+                "TimeMachine.TMMenuExtraHost" | "TimeMachineMenuExtra.TMMenuExtraHost" => {
+                    "Time Machine".to_string()
+                }
+                _ => self.title.clone(),
+            },
+            "com.apple.Passwords.MenuBarExtra" => "Passwords".to_string(),
+            _ => best_name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,7 +139,12 @@ pub struct MenuBarItemSnapshot {
     pub window_id: u32,
     pub frame: Rect,
     pub info: MenuBarItemInfo,
+    pub owner_pid: i32,
     pub owner_name: Option<String>,
+    pub bundle_identifier: Option<String>,
+    pub display_id: Option<u32>,
+    pub is_on_screen: bool,
+    pub is_on_active_space: bool,
 }
 
 impl MenuBarItemSnapshot {
@@ -92,7 +153,12 @@ impl MenuBarItemSnapshot {
             window_id,
             frame,
             info,
+            owner_pid: 0,
             owner_name: None,
+            bundle_identifier: None,
+            display_id: None,
+            is_on_screen: true,
+            is_on_active_space: true,
         }
     }
 
@@ -103,6 +169,25 @@ impl MenuBarItemSnapshot {
     pub fn is_always_hidden_control_item(&self) -> bool {
         self.info == MenuBarItemInfo::always_hidden_control_item()
     }
+
+    pub fn is_ice_control_item(&self) -> bool {
+        self.info.is_ice_control_item()
+    }
+
+    pub fn is_movable(&self) -> bool {
+        !self.info.is_immovable()
+    }
+
+    pub fn can_be_hidden(&self) -> bool {
+        self.info.can_be_hidden()
+    }
+
+    pub fn display_name(&self) -> String {
+        self.info.display_name(
+            self.owner_name.as_deref(),
+            self.bundle_identifier.as_deref(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -110,6 +195,46 @@ pub struct SectionPartition {
     pub visible: Vec<MenuBarItemSnapshot>,
     pub hidden: Vec<MenuBarItemSnapshot>,
     pub always_hidden: Vec<MenuBarItemSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MenuBarInventory {
+    pub items: Vec<MenuBarItemSnapshot>,
+}
+
+impl MenuBarInventory {
+    pub fn new(items: Vec<MenuBarItemSnapshot>) -> Self {
+        Self { items }
+    }
+
+    pub fn filtered(&self, filter: MenuBarInventoryFilter) -> Vec<MenuBarItemSnapshot> {
+        filter_inventory(self.items.clone(), filter)
+    }
+
+    pub fn partition(&self) -> SectionPartition {
+        partition_sections(self.items.clone())
+    }
+
+    pub fn debug_lines(&self) -> Vec<String> {
+        self.items
+            .iter()
+            .map(|item| {
+                format!(
+                    "#{window_id} {identity} {name} x={x:.1} w={width:.1} pid={pid} display={display}",
+                    window_id = item.window_id,
+                    identity = item.info.encoded(),
+                    name = item.display_name(),
+                    x = item.frame.min_x,
+                    width = item.frame.width,
+                    pid = item.owner_pid,
+                    display = item
+                        .display_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "-".to_string())
+                )
+            })
+            .collect()
+    }
 }
 
 pub fn partition_sections(mut items: Vec<MenuBarItemSnapshot>) -> SectionPartition {
@@ -120,14 +245,14 @@ pub fn partition_sections(mut items: Vec<MenuBarItemSnapshot>) -> SectionPartiti
             .unwrap_or(Ordering::Equal)
     });
 
-    let hidden_divider_x = items
+    let hidden_control = items
         .iter()
         .find(|item| item.is_hidden_control_item())
-        .map(|item| item.frame.min_x);
-    let always_hidden_divider_x = items
+        .map(|item| item.frame);
+    let always_hidden_control = items
         .iter()
         .find(|item| item.is_always_hidden_control_item())
-        .map(|item| item.frame.min_x);
+        .map(|item| item.frame);
 
     let mut visible = Vec::new();
     let mut hidden = Vec::new();
@@ -137,11 +262,22 @@ pub fn partition_sections(mut items: Vec<MenuBarItemSnapshot>) -> SectionPartiti
         .into_iter()
         .filter(|item| !item.is_hidden_control_item() && !item.is_always_hidden_control_item())
     {
-        match (hidden_divider_x, always_hidden_divider_x) {
-            (Some(_), Some(always_hidden_x)) if item.frame.max_x() > always_hidden_x => {
+        match (hidden_control, always_hidden_control) {
+            (Some(hidden_control), _) if item.frame.min_x >= hidden_control.max_x() => {
+                visible.push(item);
+            }
+            (Some(hidden_control), Some(always_hidden_control))
+                if item.frame.max_x() <= hidden_control.min_x
+                    && item.frame.min_x >= always_hidden_control.max_x() =>
+            {
+                hidden.push(item);
+            }
+            (_, Some(always_hidden_control))
+                if item.frame.max_x() <= always_hidden_control.min_x =>
+            {
                 always_hidden.push(item);
             }
-            (Some(hidden_x), _) if item.frame.max_x() > hidden_x => {
+            (Some(hidden_control), None) if item.frame.max_x() <= hidden_control.min_x => {
                 hidden.push(item);
             }
             _ => visible.push(item),
@@ -155,16 +291,62 @@ pub fn partition_sections(mut items: Vec<MenuBarItemSnapshot>) -> SectionPartiti
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MenuBarInventoryFilter {
+    pub display_id: Option<u32>,
+    pub on_screen_only: bool,
+    pub active_space_only: bool,
+    pub include_ice_control_items: bool,
+}
+
+impl Default for MenuBarInventoryFilter {
+    fn default() -> Self {
+        Self {
+            display_id: None,
+            on_screen_only: false,
+            active_space_only: true,
+            include_ice_control_items: true,
+        }
+    }
+}
+
+pub fn filter_inventory(
+    items: impl IntoIterator<Item = MenuBarItemSnapshot>,
+    filter: MenuBarInventoryFilter,
+) -> Vec<MenuBarItemSnapshot> {
+    let mut filtered = items
+        .into_iter()
+        .filter(|item| {
+            filter
+                .display_id
+                .is_none_or(|display_id| item.display_id == Some(display_id))
+                && (!filter.on_screen_only || item.is_on_screen)
+                && (!filter.active_space_only || item.is_on_active_space)
+                && (filter.include_ice_control_items || !item.is_ice_control_item())
+        })
+        .collect::<Vec<_>>();
+
+    filtered.sort_by(|left, right| {
+        left.frame
+            .min_x
+            .partial_cmp(&right.frame.min_x)
+            .unwrap_or(Ordering::Equal)
+    });
+    filtered
+}
+
 pub mod namespaces {
     pub const ICE: &str = "dev.undivisible.rs_ice";
     pub const CONTROL_CENTER: &str = "com.apple.controlcenter";
     pub const SYSTEM_UI_SERVER: &str = "com.apple.systemuiserver";
+    pub const SPECIAL: &str = "Special";
 }
 
 pub mod control_items {
     pub const ICE_ICON: &str = "SItem";
     pub const HIDDEN: &str = "HItem";
     pub const ALWAYS_HIDDEN: &str = "AHItem";
+    pub const NEW_ITEMS: &str = "NewItems";
 }
 
 #[cfg(test)]
@@ -196,18 +378,18 @@ mod tests {
     #[test]
     fn partitions_visible_and_hidden_items_around_hidden_divider() {
         let partition = partition_sections(vec![
-            item(1, 10.0, 20.0, "com.example.visible", "Visible"),
+            item(1, 90.0, 20.0, "com.example.visible", "Visible"),
             MenuBarItemSnapshot::new(
                 2,
                 Rect {
-                    min_x: 40.0,
+                    min_x: 60.0,
                     min_y: 0.0,
                     width: 1.0,
                     height: 24.0,
                 },
                 MenuBarItemInfo::hidden_control_item(),
             ),
-            item(3, 50.0, 20.0, "com.example.hidden", "Hidden"),
+            item(3, 10.0, 20.0, "com.example.hidden", "Hidden"),
         ]);
 
         assert_eq!(partition.visible.len(), 1);
@@ -220,11 +402,11 @@ mod tests {
     #[test]
     fn partitions_always_hidden_items_after_always_hidden_divider() {
         let partition = partition_sections(vec![
-            item(1, 10.0, 20.0, "com.example.visible", "Visible"),
+            item(1, 110.0, 20.0, "com.example.visible", "Visible"),
             MenuBarItemSnapshot::new(
                 2,
                 Rect {
-                    min_x: 40.0,
+                    min_x: 80.0,
                     min_y: 0.0,
                     width: 1.0,
                     height: 24.0,
@@ -235,19 +417,101 @@ mod tests {
             MenuBarItemSnapshot::new(
                 4,
                 Rect {
-                    min_x: 80.0,
+                    min_x: 30.0,
                     min_y: 0.0,
                     width: 1.0,
                     height: 24.0,
                 },
                 MenuBarItemInfo::always_hidden_control_item(),
             ),
-            item(5, 90.0, 20.0, "com.example.always-hidden", "AlwaysHidden"),
+            item(5, 0.0, 20.0, "com.example.always-hidden", "AlwaysHidden"),
         ]);
 
         assert_eq!(partition.visible.len(), 1);
         assert_eq!(partition.hidden.len(), 1);
         assert_eq!(partition.always_hidden.len(), 1);
         assert_eq!(partition.always_hidden[0].window_id, 5);
+    }
+
+    #[test]
+    fn display_names_match_upstream_special_cases() {
+        assert_eq!(
+            MenuBarItemInfo::new(namespaces::CONTROL_CENTER, "WiFi")
+                .display_name(Some("Control Center"), Some(namespaces::CONTROL_CENTER)),
+            "Wi-Fi"
+        );
+        assert_eq!(
+            MenuBarItemInfo::new(namespaces::SYSTEM_UI_SERVER, "TimeMachine.TMMenuExtraHost")
+                .display_name(Some("SystemUIServer"), Some(namespaces::SYSTEM_UI_SERVER)),
+            "Time Machine"
+        );
+        assert_eq!(
+            MenuBarItemInfo::new("com.apple.Passwords.MenuBarExtra", "")
+                .display_name(Some("Passwords"), Some("com.apple.Passwords.MenuBarExtra")),
+            "Passwords"
+        );
+    }
+
+    #[test]
+    fn filters_inventory_by_display_screen_space_and_control_items() {
+        let mut first = item(1, 40.0, 10.0, "com.example.one", "One");
+        first.display_id = Some(1);
+        first.is_on_screen = true;
+        first.is_on_active_space = true;
+
+        let mut hidden_control = MenuBarItemSnapshot::new(
+            2,
+            Rect {
+                min_x: 60.0,
+                min_y: 0.0,
+                width: 1.0,
+                height: 24.0,
+            },
+            MenuBarItemInfo::hidden_control_item(),
+        );
+        hidden_control.display_id = Some(1);
+
+        let mut offscreen = item(3, 20.0, 10.0, "com.example.two", "Two");
+        offscreen.display_id = Some(1);
+        offscreen.is_on_screen = false;
+
+        let mut other_display = item(4, 10.0, 10.0, "com.example.three", "Three");
+        other_display.display_id = Some(2);
+
+        let filtered = filter_inventory(
+            vec![first.clone(), hidden_control, offscreen, other_display],
+            MenuBarInventoryFilter {
+                display_id: Some(1),
+                on_screen_only: true,
+                active_space_only: true,
+                include_ice_control_items: false,
+            },
+        );
+
+        assert_eq!(filtered, vec![first]);
+    }
+
+    #[test]
+    fn encoded_identity_uses_upstream_namespace_title_shape() {
+        assert_eq!(
+            MenuBarItemInfo::new("com.example.App", "Clock:Extra").encoded(),
+            "com.example.App:Clock:Extra"
+        );
+    }
+
+    #[test]
+    fn inventory_debug_lines_include_identity_position_and_owner() {
+        let mut snapshot = item(42, 12.0, 24.0, "com.example.App", "Item");
+        snapshot.owner_pid = 123;
+        snapshot.owner_name = Some("Example".to_string());
+        snapshot.bundle_identifier = Some("com.example.App".to_string());
+        snapshot.display_id = Some(7);
+
+        let lines = MenuBarInventory::new(vec![snapshot]).debug_lines();
+
+        assert_eq!(
+            lines,
+            vec!["#42 com.example.App:Item Example x=12.0 w=24.0 pid=123 display=7"]
+        );
     }
 }

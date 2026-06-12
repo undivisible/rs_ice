@@ -15,6 +15,7 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
 - Rust preserves upstream-compatible raw data for Codable settings that do not yet have full behavioral editors.
 - Rust models accessibility and screen recording permission state and exposes native permission actions from the status menu.
 - The Swift/Aurorality menu-bar popover includes a native Permissions tab with current status and system settings actions.
+- Rust menu-bar item snapshots now model upstream identity, owner, display, active-space, on-screen, movability, hideability, section partitioning, and debug inventory output.
 
 ## Parity Work Left
 
@@ -30,10 +31,9 @@ The Rust rewrite should keep full feature and settings parity with upstream Ice.
   - permission-gated setup ordering for features that require accessibility or screen recording.
 
 - Menu bar item model:
-  - enumerate menu bar items across displays and spaces.
-  - capture item frames, owners, names, app icons, and window IDs.
+  - native enumeration of menu bar items across displays and spaces.
+  - capture app icons.
   - cache menu bar item images.
-  - distinguish visible, hidden, and always-hidden sections.
   - handle fullscreen spaces and system-hidden menu bar state.
 
 - Menu bar section behavior:
